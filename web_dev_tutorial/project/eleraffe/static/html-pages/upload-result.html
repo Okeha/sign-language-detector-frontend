@@ -1,0 +1,14 @@
+{% extends "html-components/base.html" %}
+{% block contents %}
+
+<h1>Analysis complete</h1>
+
+<h2>Results:</h2>
+<p>{{ result }}</p>
+
+<img class="img-result" src="{{url}}" alt="Your image">
+
+<br>
+<a href="{% url 'eleraffe:home' %}">Return home</a>
+
+{% endblock %}

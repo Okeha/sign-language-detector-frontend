@@ -1,0 +1,38 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ELERAFFE</title>
+    <link rel="shortcut icon" type="image/png" href="{% static 'images/favicon.ico' %}">
+    <link rel="stylesheet" href="{% static 'css/app.css' %}">
+    <script src="{% static 'js/app.js' %}"></script>
+</head>
+
+<body>
+    <header>
+        {% include 'html-components/header.html' %}
+    </header>
+
+    <main role="main">
+        <!-- Show any server-side messages returned by Djano -->
+        {% if messages %}
+        <ul class="messages">
+            {% for message in messages %}
+            <li{% if message.tags %} class="{{ message.tags }}" {% endif %}>{{ message }}</li>
+                {% endfor %}
+        </ul>
+        {% endif %}
+
+        <!-- Show main page contents returned by Django -->
+        {% block contents %}{% endblock %}
+    </main>
+
+    <footer>
+        {% include 'html-components/footer.html' %}
+    </footer>
+</body>
+
+
+</html>

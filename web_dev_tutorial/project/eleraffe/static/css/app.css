@@ -1,0 +1,173 @@
+/* Establish global vars */
+body {
+    --default-width: 50rem;
+}
+
+/* Dark and light themes */
+@media (prefers-color-scheme: dark) {
+    body {
+        --color-bg: rgb(0, 0, 0);
+        --color-main: rgb(255, 255, 255);
+        --color-main-inv: rgb(0, 0, 0);
+        --color-highlight: rgb(147, 64, 225);
+        --color-bg2: rgb(35, 35, 35);
+    }
+
+    nav a {
+        color: white !important;
+    }
+
+}
+
+@media (prefers-color-scheme: light) {
+    body {
+        --color-bg: rgb(235, 235, 235);
+        --color-main: rgb(0, 0, 0);
+        --color-main-inv: rgb(235, 235, 235);
+        --color-highlight: rgb(47, 115, 184);
+        --color-bg2: rgb(220, 220, 220);
+    }
+
+    nav a {
+        color: white !important;
+    }
+}
+
+
+/* Body styles */
+body {
+    background-color: var(--color-bg);
+    color: var(--color-main);
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    display: grid;
+    gap: 1em;
+    grid-template-rows: auto 1fr auto;
+    justify-items: center;
+    margin: unset;
+    min-height: 100vh;
+}
+
+/* Header text styles */
+h1,
+h2,
+h3 {
+    color: var(--color-highlight)
+}
+
+/* Style nav bar */
+header {
+    width: 100vw;
+    background-color: var(--color-highlight);
+    display: flex;
+    justify-content: center;
+}
+
+nav {
+    display: grid;
+    grid-template-columns: max-content max-content auto;
+    align-items: center;
+    margin: 0.5em 0em;
+    width: var(--default-width);
+}
+
+nav a {
+    text-decoration: unset;
+}
+
+nav a:hover {
+    font-weight: bolder;
+}
+
+nav>* {
+    margin: 1em 1em 1em 1em;
+}
+
+nav>*:first-child {
+    margin: 1em 1em 1em 0em;
+}
+
+nav>*:last-child {
+    margin: 1em 0em 1em 1em;
+}
+
+nav ul {
+    padding: unset;
+}
+
+nav ul li {
+    display: inline-block;
+    list-style-type: none;
+    margin: 0em 1em;
+    cursor: pointer;
+}
+
+nav #nav-links-right {
+    text-align: end;
+}
+
+/* Messages styling */
+.messages {
+    list-style-type: none;
+    padding-inline-start: unset;
+}
+
+.messages>* {
+    padding: 1em 2em;
+    border-radius: 0.5em;
+    background-color: var(--color-highlight);
+}
+
+.messages>.error {
+    background-color: red;
+}
+
+.messages>.warning {
+    background-color: yellow;
+}
+
+/* Style main */
+main {
+    width: var(--default-width);
+}
+
+main a {
+    color: var(--color-highlight);
+}
+
+main a:active {
+    color: var(--color-main);
+}
+
+/* Style analysis results page */
+.img-result {
+    max-width: var(--default-width);
+    max-height: 500px;
+}
+
+/* Style footer */
+footer {
+    width: 100vw;
+    display: flex;
+    justify-content: center;
+    background-color: var(--color-bg2);
+}
+
+/* Loading spinner */
+.loader {
+    border: 0.3em solid var(--color-bg2);
+    border-top: 0.3em solid var(--color-highlight);
+    border-radius: 50%;
+    width: 1em;
+    height: 1em;
+    animation: spin 2s linear infinite;
+}
+
+@keyframes spin {
+    0% {
+        transform: rotate(0deg);
+    }
+
+    100% {
+        transform: rotate(360deg);
+    }
+}

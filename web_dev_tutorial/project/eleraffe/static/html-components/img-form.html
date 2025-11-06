@@ -1,0 +1,6 @@
+<form enctype="multipart/form-data" action="" method="post">
+    {% csrf_token %}
+    <label for="image-input-file">Select image:</label>
+    <input id="image-input-file" type="file" name="image-input-file">
+    <input id="image-input-submit" type="submit" value="Submit" />
+</form>

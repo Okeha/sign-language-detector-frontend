@@ -1,0 +1,17 @@
+{% extends "html-components/base.html" %}
+{% block contents %}
+<h2>Have You Ever Wondered?</h2>
+<ul>
+    <li>Is my picture a elephant?</li>
+    <li>Is my picture a giraffe?</li>
+</ul>
+
+<h2>Well, Wonder No Longer</h2>
+<h3>Introducing ELERAFFE</h3>
+<p>Just upload your image below and find out if your image is an elephant or a giraffe.<br>Works 100% of the time, about
+    25% of the time!</p>
+
+<div id="img-upload-form">
+    {% include 'html-components/img-form.html' %}
+</div>
+{% endblock %}
