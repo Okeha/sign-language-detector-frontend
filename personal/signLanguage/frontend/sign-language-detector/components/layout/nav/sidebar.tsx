@@ -4,14 +4,20 @@ import * as React from "react";
 import {
   BookOpen,
   Bot,
+  BrainCircuit,
   Command,
   Frame,
+  Gift,
+  Globe,
   LifeBuoy,
   Map,
+  Phone,
   PieChart,
+  Presentation,
   Send,
   Settings2,
   SquareTerminal,
+  Vegan,
 } from "lucide-react";
 
 import {
@@ -30,124 +36,124 @@ import { NavUser } from "./nav-user";
 
 const data = {
   user: {
-    name: "shadcn",
-    email: "m@example.com",
-    avatar: "/avatars/shadcn.jpg",
+    name: "User",
+    email: "anonymous",
+    avatar: "AN",
   },
   navMain: [
-    {
-      title: "Playground",
-      url: "#",
-      icon: SquareTerminal,
-      isActive: true,
-      items: [
-        {
-          title: "History",
-          url: "#",
-        },
-        {
-          title: "Starred",
-          url: "#",
-        },
-        {
-          title: "Settings",
-          url: "#",
-        },
-      ],
-    },
+    // {
+    //   title: "Playground",
+    //   url: "#",
+    //   icon: SquareTerminal,
+    //   isActive: true,
+    //   items: [
+    //     {
+    //       title: "History",
+    //       url: "#",
+    //     },
+    //     {
+    //       title: "Starred",
+    //       url: "#",
+    //     },
+    //     {
+    //       title: "Settings",
+    //       url: "#",
+    //     },
+    //   ],
+    // },
     {
       title: "Models",
       url: "#",
       icon: Bot,
       items: [
         {
-          title: "Genesis",
+          title: "Sign Language Detector",
           url: "#",
         },
         {
-          title: "Explorer",
+          title: "Harvest Predictor - AgroAI",
           url: "#",
         },
         {
-          title: "Quantum",
+          title: "Lung Cancer Classifier",
           url: "#",
         },
       ],
     },
-    {
-      title: "Documentation",
-      url: "#",
-      icon: BookOpen,
-      items: [
-        {
-          title: "Introduction",
-          url: "#",
-        },
-        {
-          title: "Get Started",
-          url: "#",
-        },
-        {
-          title: "Tutorials",
-          url: "#",
-        },
-        {
-          title: "Changelog",
-          url: "#",
-        },
-      ],
-    },
-    {
-      title: "Settings",
-      url: "#",
-      icon: Settings2,
-      items: [
-        {
-          title: "General",
-          url: "#",
-        },
-        {
-          title: "Team",
-          url: "#",
-        },
-        {
-          title: "Billing",
-          url: "#",
-        },
-        {
-          title: "Limits",
-          url: "#",
-        },
-      ],
-    },
+    // {
+    //   title: "Documentation",
+    //   url: "#",
+    //   icon: BookOpen,
+    //   items: [
+    //     {
+    //       title: "Introduction",
+    //       url: "#",
+    //     },
+    //     {
+    //       title: "Get Started",
+    //       url: "#",
+    //     },
+    //     {
+    //       title: "Tutorials",
+    //       url: "#",
+    //     },
+    //     {
+    //       title: "Changelog",
+    //       url: "#",
+    //     },
+    //   ],
+    // },
+    // {
+    //   title: "Settings",
+    //   url: "#",
+    //   icon: Settings2,
+    //   items: [
+    //     {
+    //       title: "General",
+    //       url: "#",
+    //     },
+    //     {
+    //       title: "Team",
+    //       url: "#",
+    //     },
+    //     {
+    //       title: "Billing",
+    //       url: "#",
+    //     },
+    //     {
+    //       title: "Limits",
+    //       url: "#",
+    //     },
+    //   ],
+    // },
   ],
   navSecondary: [
     {
-      title: "Support",
-      url: "#",
-      icon: LifeBuoy,
+      title: "Portfolio | Anthony",
+      url: "https://okeh-anthony-portfolio.netlify.app/",
+      icon: Globe,
     },
     {
-      title: "Feedback",
+      title: "Contact | okehanthony1234@gmail.com",
       url: "#",
       icon: Send,
     },
   ],
   projects: [
     {
-      name: "Design Engineering",
+      name: "AgroTechMinds",
       url: "#",
-      icon: Frame,
+      icon: Vegan,
     },
     {
-      name: "Sales & Marketing",
+      name: "MoraleHAI",
       url: "#",
-      icon: PieChart,
+      icon: BrainCircuit,
     },
     {
-      name: "Travel",
+      name: "Christmas Gifts AI",
       url: "#",
-      icon: Map,
+      icon: Gift,
     },
   ],
 };
@@ -162,15 +168,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" asChild>
-              <a href="#">
-                <div className="bg-sidebar-primary text-sidebar-primary-foreground flex aspect-square size-8 items-center justify-center rounded-lg">
-                  <Command className="size-4" />
-                </div>
-                <div className="grid flex-1 text-left text-sm leading-tight">
-                  <span className="truncate font-medium">Acme Inc</span>
-                  <span className="truncate text-xs">Enterprise</span>
-                </div>
-              </a>
+              <NavUser user={data.user} />
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
@@ -180,9 +178,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         <NavProjects projects={data.projects} />
         <NavSecondary items={data.navSecondary} className="mt-auto" />
       </SidebarContent>
-      <SidebarFooter>
-        <NavUser user={data.user} />
-      </SidebarFooter>
+      <SidebarFooter></SidebarFooter>
     </Sidebar>
   );
 }
