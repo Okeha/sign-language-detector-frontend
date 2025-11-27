@@ -2,10 +2,51 @@
 
 import { useEffect, useRef, Suspense, useState } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
-import { OrbitControls, PerspectiveCamera } from "@react-three/drei";
+import {
+  OrbitControls,
+  PerspectiveCamera,
+  useGLTF,
+  useAnimations,
+} from "@react-three/drei";
 import * as THREE from "three";
 
-// Simple 3D Human Figure Component
+// Custom 3D Model Component - Load your GLTF/GLB model
+function CustomModel({ modelPath }: { modelPath: string }) {
+  const groupRef = useRef<THREE.Group>(null);
+
+  try {
+    // Load the GLTF model
+    const { scene, animations } = useGLTF(modelPath);
+    const { actions } = useAnimations(animations, groupRef);
+
+    useEffect(() => {
+      // Play the first animation if available
+      if (actions && Object.keys(actions).length > 0) {
+        const firstAnimation = Object.values(actions)[0];
+        firstAnimation?.play();
+      }
+    }, [actions]);
+
+    // Optional: Add custom animations
+    useFrame((state) => {
+      if (groupRef.current) {
+        // Gentle rotation (optional - comment out if you don't want rotation)
+        // groupRef.current.rotation.y = Math.sin(state.clock.elapsedTime * 0.5) * 0.3;
+      }
+    });
+
+    return (
+      <group ref={groupRef} position={[0, 0, 0]}>
+        <primitive object={scene} scale={1} castShadow receiveShadow />
+      </group>
+    );
+  } catch (error) {
+    console.error("Error loading 3D model:", error);
+    return null;
+  }
+}
+
+// Fallback: Simple 3D Human Figure Component (if no model provided)
 function HumanFigure() {
   const groupRef = useRef<THREE.Group>(null);
 
@@ -13,8 +54,9 @@ function HumanFigure() {
   useFrame((state) => {
     if (groupRef.current) {
       // Gentle rotation
-      groupRef.current.rotation.y = Math.sin(state.clock.elapsedTime * 0.5) * 0.3;
-      
+      groupRef.current.rotation.y =
+        Math.sin(state.clock.elapsedTime * 0.5) * 0.3;
+
       // Wave animation for right arm
       const rightArm = groupRef.current.children[4]; // Right arm
       if (rightArm) {
@@ -80,39 +122,51 @@ export default function ModelViewer() {
   const containerRef = useRef<HTMLDivElement>(null);
   const [isDark, setIsDark] = useState(false);
 
+  // CONFIGURE YOUR MODEL HERE:
+  // Set to null to use the default geometric figure, or provide path to your GLTF/GLB model
+  const customModelPath: string | null = "/Static_Me.glb";
+
   useEffect(() => {
     console.log("3D Model Viewer initialized with Three.js");
-    
+
+    // Preload the model if path is provided
+    if (customModelPath) {
+      useGLTF.preload(customModelPath);
+    }
+
     // Check for dark mode
     const checkDarkMode = () => {
-      setIsDark(document.documentElement.classList.contains('dark'));
+      setIsDark(document.documentElement.classList.contains("dark"));
     };
-    
+
     checkDarkMode();
-    
+
     // Watch for theme changes
     const observer = new MutationObserver(checkDarkMode);
     observer.observe(document.documentElement, {
       attributes: true,
-      attributeFilter: ['class']
+      attributeFilter: ["class"],
     });
-    
+
     return () => observer.disconnect();
   }, []);
 
   return (
     <div ref={containerRef} className="w-full h-full">
       <Suspense fallback={<LoadingFallback />}>
-        <Canvas 
+        <Canvas
           shadows
           gl={{ antialias: true, alpha: true }}
           dpr={[1, 2]}
+          onCreated={({ gl }) => {
+            gl.setClearColor(isDark ? "#1a1a2e" : "#f0f4f8");
+          }}
         >
-          <PerspectiveCamera makeDefault position={[0, 1.5, 4]} />
-          <OrbitControls 
+          <PerspectiveCamera makeDefault position={[0, 1.5, 2]} />
+          <OrbitControls
             enablePan={false}
-            minDistance={2}
-            maxDistance={6}
+            minDistance={1.5}
+            maxDistance={5}
             target={[0, 1, 0]}
           />
 
@@ -130,11 +184,19 @@ export default function ModelViewer() {
           {/* Background color - adapts to theme */}
           <color attach="background" args={[isDark ? "#1a1a2e" : "#f0f4f8"]} />
 
-          {/* 3D Human Figure */}
-          <HumanFigure />
+          {/* 3D Model - Use custom model if provided, otherwise use default figure */}
+          {customModelPath ? (
+            <CustomModel modelPath={customModelPath} />
+          ) : (
+            <HumanFigure />
+          )}
 
           {/* Ground */}
-          <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.3, 0]} receiveShadow>
+          <mesh
+            rotation={[-Math.PI / 2, 0, 0]}
+            position={[0, -0.3, 0]}
+            receiveShadow
+          >
             <planeGeometry args={[10, 10]} />
             <shadowMaterial opacity={isDark ? 0.5 : 0.3} />
           </mesh>

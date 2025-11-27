@@ -34,11 +34,11 @@ export function SiteHeader() {
         <Breadcrumb className="hidden sm:block">
           <BreadcrumbList>
             <BreadcrumbItem>
-              <BreadcrumbLink href="#">Models</BreadcrumbLink>
+              <BreadcrumbLink href="#">Chat</BreadcrumbLink>
             </BreadcrumbItem>
             <BreadcrumbSeparator />
             <BreadcrumbItem>
-              <BreadcrumbPage>Sign Language Detection</BreadcrumbPage>
+              <BreadcrumbPage>Sign Language Assistant</BreadcrumbPage>
             </BreadcrumbItem>
           </BreadcrumbList>
         </Breadcrumb>

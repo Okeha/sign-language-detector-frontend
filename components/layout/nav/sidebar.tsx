@@ -62,6 +62,17 @@ const data = {
     //   ],
     // },
     {
+      title: "Chat",
+      url: "#",
+      icon: Bot,
+      items: [
+        {
+          title: "Sign Language Assistant",
+          url: "#",
+        },
+      ],
+    },
+    {
       title: "Models",
       url: "#",
       icon: Bot,

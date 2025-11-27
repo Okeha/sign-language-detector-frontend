@@ -30,7 +30,10 @@ export function RightPanel() {
               <p className="text-xs text-muted-foreground">Live detection</p>
             </div>
           </div>
-          <div className="flex-1 rounded-lg overflow-hidden bg-gradient-to-br from-black/5 to-black/10 shadow-inner">
+          <div
+            className="flex-1 rounded-lg overflow-hidden bg-gradient-to-br  shadow-inner"
+            style={{ paddingBottom: "12px" }}
+          >
             <CameraStream />
           </div>
         </div>
