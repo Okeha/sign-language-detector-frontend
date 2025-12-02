@@ -162,13 +162,13 @@ export default function ModelViewer() {
             gl.setClearColor(isDark ? "#1a1a2e" : "#f0f4f8");
           }}
         >
-          <PerspectiveCamera makeDefault position={[0, 1.5, 2]} />
-          <OrbitControls
+          <PerspectiveCamera makeDefault position={[0, 1.5, 1.5]} />
+          {/* <OrbitControls
             enablePan={false}
             minDistance={1.5}
             maxDistance={5}
             target={[0, 1, 0]}
-          />
+          /> */}
 
           {/* Lighting */}
           <ambientLight intensity={isDark ? 0.4 : 0.6} />
