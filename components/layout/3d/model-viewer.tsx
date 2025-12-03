@@ -124,7 +124,7 @@ export default function ModelViewer() {
 
   // CONFIGURE YOUR MODEL HERE:
   // Set to null to use the default geometric figure, or provide path to your GLTF/GLB model
-  const customModelPath: string | null = "/Static_Me.glb";
+  const customModelPath: string | null = "/models/Static_Me.glb";
 
   useEffect(() => {
     console.log("3D Model Viewer initialized with Three.js");
