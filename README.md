@@ -128,6 +128,7 @@ This project is currently private/personal. Add a LICENSE file if you want to op
 ```
 
 **Wrapped** (with type field):
+
 ```json
 {
   "type": "prediction",
@@ -142,6 +143,7 @@ This project is currently private/personal. Add a LICENSE file if you want to op
 ### State Management
 
 The app uses React state and callbacks to manage:
+
 - Predictions flow from camera → WebSocket → chat
 - Streaming state synchronized across components
 - Word choices array built during streaming
@@ -152,6 +154,7 @@ pnpm dev
 ```
 
 Visit the app and open DevTools (F12) to view detailed console logs:
+
 - `✅ WebSocket OPENED` — Connection established
 - `🔔 ONMESSAGE FIRED` — Prediction received
 - `🎯 Prediction extracted` — Gloss parsed
@@ -164,9 +167,11 @@ Common issues:
 - **WebSocket connection failed**: Verify backend is running at `ws://localhost:8000`
 - **No predictions received**: Check backend logs to confirm predictions are being sent through WebSocket
 - **Performance issues**: Reduce frame rate or disable AccumulativeShadows in 3D viewer
+
 8. **Display**: Shows interpreted natural language sentence in the input field
 
 The app expects the backend to provide:
+
 - WebSocket endpoint: `ws://localhost:8000/ws/stream/{session_id}` for real-time frame streaming
 - REST endpoint: `http://localhost:8000/interpret-glosses` for gloss interpretation (POST)
 
