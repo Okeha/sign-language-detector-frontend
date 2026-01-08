@@ -14,36 +14,31 @@ import * as THREE from "three";
 function CustomModel({ modelPath }: { modelPath: string }) {
   const groupRef = useRef<THREE.Group>(null);
 
-  try {
-    // Load the GLTF model
-    const { scene, animations } = useGLTF(modelPath);
-    const { actions } = useAnimations(animations, groupRef);
+  // Load the GLTF model
+  const { scene, animations } = useGLTF(modelPath);
+  const { actions } = useAnimations(animations, groupRef);
 
-    useEffect(() => {
-      // Play the first animation if available
-      if (actions && Object.keys(actions).length > 0) {
-        const firstAnimation = Object.values(actions)[0];
-        firstAnimation?.play();
-      }
-    }, [actions]);
+  useEffect(() => {
+    // Play the first animation if available
+    if (actions && Object.keys(actions).length > 0) {
+      const firstAnimation = Object.values(actions)[0];
+      firstAnimation?.play();
+    }
+  }, [actions]);
 
-    // Optional: Add custom animations
-    useFrame((state) => {
-      if (groupRef.current) {
-        // Gentle rotation (optional - comment out if you don't want rotation)
-        // groupRef.current.rotation.y = Math.sin(state.clock.elapsedTime * 0.5) * 0.3;
-      }
-    });
+  // Optional: Add custom animations
+  useFrame((state) => {
+    if (groupRef.current) {
+      // Gentle rotation (optional - comment out if you don't want rotation)
+      // groupRef.current.rotation.y = Math.sin(state.clock.elapsedTime * 0.5) * 0.3;
+    }
+  });
 
-    return (
-      <group ref={groupRef} position={[0, 0, 0]}>
-        <primitive object={scene} scale={1} castShadow receiveShadow />
-      </group>
-    );
-  } catch (error) {
-    console.error("Error loading 3D model:", error);
-    return null;
-  }
+  return (
+    <group ref={groupRef} position={[0, 0, 0]}>
+      <primitive object={scene} scale={1} castShadow receiveShadow />
+    </group>
+  );
 }
 
 // Fallback: Simple 3D Human Figure Component (if no model provided)
