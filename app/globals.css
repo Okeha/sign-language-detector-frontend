@@ -121,6 +121,43 @@
   }
 }
 
+/* Markdown styling for chat messages */
+.prose {
+  @apply text-foreground;
+}
+
+.prose :where(code):not(:where([class~="not-prose"] *)) {
+  @apply bg-muted/50 text-foreground px-1.5 py-0.5 rounded text-xs font-mono border border-border;
+}
+
+.prose :where(pre):not(:where([class~="not-prose"] *)) {
+  @apply bg-muted/80 text-foreground p-3 rounded-lg border border-border overflow-x-auto my-2;
+}
+
+.prose :where(pre code):not(:where([class~="not-prose"] *)) {
+  @apply bg-transparent border-0 p-0;
+}
+
+.prose :where(strong):not(:where([class~="not-prose"] *)) {
+  @apply font-semibold text-foreground;
+}
+
+.prose :where(ul, ol):not(:where([class~="not-prose"] *)) {
+  @apply my-2 pl-4;
+}
+
+.prose :where(li):not(:where([class~="not-prose"] *)) {
+  @apply my-1;
+}
+
+.prose :where(p):not(:where([class~="not-prose"] *)) {
+  @apply my-2 leading-relaxed;
+}
+
+.prose :where(h1, h2, h3, h4, h5, h6):not(:where([class~="not-prose"] *)) {
+  @apply font-semibold text-foreground mt-3 mb-2;
+}
+
 .video-container {
   border: 1px solid var(--color-border);
   padding: 20px;

@@ -8,6 +8,8 @@ import { Badge } from "@/components/ui/badge";
 import { Wand2, Sparkles, Trash2, Loader2, SendIcon } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { GlossPrediction } from "@/types/sign-language";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 interface Message {
   id: string;
@@ -15,6 +17,7 @@ interface Message {
   content: string;
   timestamp: Date;
   prediction?: GlossPrediction;
+  isLoading?: boolean;
 }
 
 interface ChatInterfaceEnhancedProps {
@@ -41,10 +44,23 @@ export default function ChatInterfaceEnhanced({
   ]);
   const [wordChoices, setWordChoices] = useState<string[][]>([]);
   const [interpretedSentence, setInterpretedSentence] = useState<string>("");
+  const [inputText, setInputText] = useState<string>(""); // Manual input
   const [isConverting, setIsConverting] = useState(false);
+  const [isWaitingForResponse, setIsWaitingForResponse] = useState(false);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const lastPredictionRef = useRef<string>("");
   const previousStreamingRef = useRef<boolean>(false);
+
+  // Sync inputText with interpretedSentence or wordChoices
+  useEffect(() => {
+    if (isConverting) {
+      setInputText("Interpreting...");
+    } else if (interpretedSentence) {
+      setInputText(interpretedSentence);
+    } else if (wordChoices.length > 0) {
+      setInputText(wordChoices.map((choices) => choices[0] || "").join(" "));
+    }
+  }, [wordChoices, interpretedSentence, isConverting]);
 
   // Debug: Log wordChoices whenever they change
   useEffect(() => {
@@ -160,27 +176,93 @@ export default function ChatInterfaceEnhanced({
   const handleClearGlosses = async () => {
     setWordChoices([]);
     setInterpretedSentence("");
+    setInputText("");
     lastPredictionRef.current = "";
     console.log("🗑️ Cleared word choices and interpreted sentence");
   };
 
-  const handleSendGlosses = () => {
-    if (wordChoices.length === 0 && !interpretedSentence) return;
+  const handleSendGlosses = async () => {
+    // Allow sending if we have text in the input
+    if (!inputText || inputText === "Interpreting...") return;
+    if (isWaitingForResponse) return; // Prevent multiple simultaneous requests
+    if (isConverting) return; // Wait for interpretation to complete
 
-    // Send the interpreted sentence if available, otherwise raw glosses
-    const content =
-      interpretedSentence ||
-      wordChoices.map((choices) => choices[0] || "").join(" ");
-    const message: Message = {
+    const content = inputText.trim();
+    if (!content) return;
+
+    const userMessage: Message = {
       id: Date.now().toString(),
       role: "user",
       content: content,
       timestamp: new Date(),
     };
-    setMessages((prev) => [...prev, message]);
+    setMessages((prev) => [...prev, userMessage]);
+
+    // Clear state after adding to messages
     setWordChoices([]);
     setInterpretedSentence("");
-    console.log("📨 Sent to chat:", content);
+    setInputText("");
+
+    // Add loading message for AI response
+    const loadingMessageId = `loading-${Date.now()}`;
+    const loadingMessage: Message = {
+      id: loadingMessageId,
+      role: "assistant",
+      content: "Thinking...",
+      timestamp: new Date(),
+      isLoading: true,
+    };
+    setMessages((prev) => [...prev, loadingMessage]);
+    setIsWaitingForResponse(true);
+
+    try {
+      // Call the /chat endpoint
+      const response = await fetch(`${backendUrl}/chat`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          message: content,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      console.log("🤖 AI Response:", data);
+
+      // Remove loading message and add actual response
+      setMessages((prev) => {
+        const filtered = prev.filter((msg) => msg.id !== loadingMessageId);
+        const aiMessage: Message = {
+          id: Date.now().toString(),
+          role: "assistant",
+          content: data.response,
+          timestamp: new Date(data.timestamp || Date.now()),
+        };
+        return [...filtered, aiMessage];
+      });
+    } catch (error) {
+      console.error("❌ Error calling /chat endpoint:", error);
+
+      // Remove loading message and show error
+      setMessages((prev) => {
+        const filtered = prev.filter((msg) => msg.id !== loadingMessageId);
+        const errorMessage: Message = {
+          id: Date.now().toString(),
+          role: "assistant",
+          content:
+            "Sorry, I encountered an error processing your request. Please try again.",
+          timestamp: new Date(),
+        };
+        return [...filtered, errorMessage];
+      });
+    } finally {
+      setIsWaitingForResponse(false);
+    }
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -213,8 +295,8 @@ export default function ChatInterfaceEnhanced({
       </div>
 
       {/* Messages Area */}
-      <ScrollArea className="flex-1 p-4 overflow-y-auto" ref={scrollAreaRef}>
-        <div className="space-y-4">
+      <ScrollArea className="flex-1 p-4 max-h-[800px]" ref={scrollAreaRef}>
+        <div className="space-y-4 pb-2">
           {messages.map((message) => (
             <div
               key={message.id}
@@ -236,7 +318,20 @@ export default function ChatInterfaceEnhanced({
                     : "bg-muted"
                 }`}
               >
-                <p className="text-sm">{message.content}</p>
+                {message.isLoading ? (
+                  <div className="flex items-center gap-2">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <span className="text-sm">{message.content}</span>
+                  </div>
+                ) : message.role === "assistant" ? (
+                  <div className="text-sm prose prose-sm dark:prose-invert max-w-none">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                      {message.content}
+                    </ReactMarkdown>
+                  </div>
+                ) : (
+                  <p className="text-sm">{message.content}</p>
+                )}
                 <span className="text-xs opacity-70 mt-1 block">
                   {message.timestamp.toLocaleTimeString([], {
                     hour: "2-digit",
@@ -255,57 +350,61 @@ export default function ChatInterfaceEnhanced({
       </ScrollArea>
 
       {/* Input Area */}
-      <div className="border-t p-4 flex-shrink-0">
-        <div className="flex flex-col gap-2">
-          {/* Glosses Display */}
-          <div className="flex gap-2 items-center">
-            <Input
-              placeholder="Detected signs will appear here..."
-              value={
-                isConverting
-                  ? "Interpreting..."
-                  : interpretedSentence ||
-                    wordChoices.map((choices) => choices[0] || "").join(" ")
-              }
-              readOnly
-              onKeyPress={handleKeyPress}
-              className="flex-1"
-            />
-            <Button
-              onClick={handleSendGlosses}
-              size="icon"
-              disabled={wordChoices.length === 0 && !interpretedSentence}
-              title="Send to chat"
-            >
+      <div className="border-t p-2 flex-shrink-0">
+        <div className="flex gap-2 items-center">
+          <Input
+            placeholder="Detected signs will appear here or type your message..."
+            value={inputText}
+            onChange={(e) => setInputText(e.target.value)}
+            onKeyPress={handleKeyPress}
+            disabled={isConverting}
+            className="flex-1"
+          />
+          <Button
+            onClick={handleSendGlosses}
+            size="icon"
+            disabled={
+              !inputText ||
+              inputText === "Interpreting..." ||
+              isWaitingForResponse ||
+              isConverting
+            }
+            title="Send to chat"
+          >
+            {isWaitingForResponse ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
               <SendIcon className="h-4 w-4" />
-            </Button>
-            <Button
-              onClick={handleClearGlosses}
-              size="icon"
-              variant="outline"
-              disabled={wordChoices.length === 0 && !interpretedSentence}
-              title="Clear all"
-            >
-              <Trash2 className="h-4 w-4" />
-            </Button>
-            <Button
-              onClick={handleConvertToSentence}
-              size="icon"
-              variant="secondary"
-              disabled={
-                wordChoices.length === 0 ||
-                isConverting ||
-                interpretedSentence !== ""
-              }
-              title="Re-interpret with AI (auto-runs on stream stop)"
-            >
-              {isConverting ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Wand2 className="h-4 w-4" />
-              )}
-            </Button>
-          </div>
+            )}
+          </Button>
+          <Button
+            onClick={handleClearGlosses}
+            size="icon"
+            variant="outline"
+            disabled={
+              wordChoices.length === 0 && !interpretedSentence && !inputText
+            }
+            title="Clear all"
+          >
+            <Trash2 className="h-4 w-4" />
+          </Button>
+          <Button
+            onClick={handleConvertToSentence}
+            size="icon"
+            variant="secondary"
+            disabled={
+              wordChoices.length === 0 ||
+              isConverting ||
+              interpretedSentence !== ""
+            }
+            title="Re-interpret with AI (auto-runs on stream stop)"
+          >
+            {isConverting ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Wand2 className="h-4 w-4" />
+            )}
+          </Button>
         </div>
       </div>
     </div>
