@@ -38,7 +38,7 @@ export default function ChatInterfaceEnhanced({
       id: "1",
       role: "assistant",
       content:
-        "Hello! I'm your Sign Language Detection Assistant. Start the camera and begin streaming to detect signs in real-time.",
+        "Hello! I'm **Signrr**, your Sign Language Detection Assistant.\n\n Start the camera and begin streaming to begin a chat session. ",
       timestamp: new Date(),
     },
   ]);
