@@ -9,14 +9,167 @@ import {
   useAnimations,
 } from "@react-three/drei";
 import * as THREE from "three";
+import { useMotionPlayer } from "@/hooks/use-motion-player";
+import {
+  buildBoneMap,
+  findSkinnedMesh,
+  applyBodyMotion,
+  applyHandMotion,
+  applyFaceMotion,
+} from "@/lib/bone-mapper";
 
-// Custom 3D Model Component - Load your GLTF/GLB model
-function CustomModel({ modelPath }: { modelPath: string }) {
+// Custom 3D Model Component - Load your GLTF/GLB model with motion integration
+function CustomModel({
+  modelPath,
+  currentGloss,
+  glossSequence,
+}: {
+  modelPath: string;
+  currentGloss?: string | null;
+  glossSequence?: string[] | null;
+}) {
   const groupRef = useRef<THREE.Group>(null);
 
   // Load the GLTF model
   const { scene, animations } = useGLTF(modelPath);
   const { actions } = useAnimations(animations, groupRef);
+
+  // Motion player hook
+  const {
+    playbackState,
+    playMotion,
+    playSequence,
+    stopMotion,
+    getCurrentFrame,
+    updateFrame,
+  } = useMotionPlayer();
+
+  // Build bone map and find skinned mesh once on mount
+  const boneMap = useRef<Map<string, THREE.Bone> | null>(null);
+  const skinnedMesh = useRef<THREE.SkinnedMesh | null>(null);
+  const frameCounter = useRef(0); // Throttle updates
+
+  useEffect(() => {
+    if (scene) {
+      boneMap.current = buildBoneMap(scene);
+      skinnedMesh.current = findSkinnedMesh(scene);
+      console.log(`🦴 Built bone map with ${boneMap.current.size} bones`);
+    }
+
+    // Cleanup on unmount
+    return () => {
+      boneMap.current = null;
+      skinnedMesh.current = null;
+    };
+  }, [scene]);
+
+  // DISABLED: Debug code causes GPU crash on hot reload
+  /*
+  // Debug model structure for motion JSON compatibility
+  useEffect(() => {
+    console.log("=== 🔍 MODEL STRUCTURE DEBUG ===");
+
+    // Find all bones, skinned meshes, and morph targets
+    const bones: THREE.Bone[] = [];
+    const skinnedMeshes: THREE.SkinnedMesh[] = [];
+    const morphTargets: Record<string, string[]> = {};
+
+    scene.traverse((node) => {
+      if (node instanceof THREE.Bone) {
+        bones.push(node);
+      }
+      if (node instanceof THREE.SkinnedMesh) {
+        skinnedMeshes.push(node);
+        if (node.morphTargetDictionary) {
+          morphTargets[node.name] = Object.keys(node.morphTargetDictionary);
+        }
+      }
+    });
+
+    console.log(`✅ Found ${bones.length} bones`);
+    console.log(`✅ Found ${skinnedMeshes.length} skinned meshes`);
+    console.log(`✅ Animations: ${animations.length}`);
+
+    if (bones.length > 0) {
+      console.log("\n📋 BONE NAMES (first 30):");
+      bones.slice(0, 30).forEach((bone) => console.log(`  - ${bone.name}`));
+
+      // Check for key bones needed for motion JSON
+      const requiredBones = [
+        "LeftShoulder",
+        "RightShoulder",
+        "LeftArm",
+        "RightArm",
+        "LeftForeArm",
+        "RightForeArm",
+        "LeftHand",
+        "RightHand",
+        "Hips",
+        "Spine",
+        "Head",
+        "LeftHandThumb1",
+        "RightHandThumb1",
+        "LeftHandIndex1",
+        "RightHandIndex1",
+      ];
+
+      console.log("\n🔍 KEY BONES CHECK (needed for MediaPipe motion):");
+      requiredBones.forEach((boneName) => {
+        const found = bones.find((b) => b.name === boneName);
+        console.log(`  ${found ? "✅" : "❌"} ${boneName}`);
+      });
+
+      console.log("\n💡 RECOMMENDATION:");
+      const hasArmBones = bones.some(
+        (b) => b.name.includes("Arm") || b.name.includes("arm"),
+      );
+      const hasHandBones = bones.some(
+        (b) => b.name.includes("Hand") || b.name.includes("hand"),
+      );
+
+      if (hasArmBones && hasHandBones) {
+        console.log("  ✅ Model looks compatible! Has arm and hand bones.");
+      } else if (bones.length === 0) {
+        console.log(
+          "  ❌ NO BONES FOUND! This model won't work for motion JSON.",
+        );
+        console.log("     You need a rigged Ready Player Me avatar.");
+      } else {
+        console.log("  ⚠️  Model has bones but needs name mapping.");
+        console.log("     Bone names might be different from standard.");
+      }
+    } else {
+      console.log("\n❌ CRITICAL: No skeleton found!");
+      console.log("   This model is NOT compatible with motion JSON.");
+      console.log("   You need a rigged character with bones/armature.");
+    }
+
+    if (Object.keys(morphTargets).length > 0) {
+      console.log("\n😊 MORPH TARGETS (for facial expressions):");
+      Object.entries(morphTargets).forEach(([mesh, targets]) => {
+        console.log(
+          `  ${mesh}: ${targets.slice(0, 5).join(", ")}${targets.length > 5 ? "..." : ""}`,
+        );
+      });
+    }
+
+    console.log("\n=== END DEBUG ===\n");
+  }, [scene, animations]);
+  */
+
+  // Load motion when gloss or sequence changes
+  useEffect(() => {
+    // Prioritize sequence over single gloss
+    if (glossSequence && glossSequence.length > 0) {
+      console.log(`🎬 Loading motion sequence: [${glossSequence.join(", ")}]`);
+      playSequence(glossSequence);
+    } else if (currentGloss && currentGloss.trim() !== "") {
+      console.log(`🎬 Loading motion for gloss: ${currentGloss}`);
+      playMotion(currentGloss);
+    } else {
+      stopMotion();
+    }
+  }, [currentGloss, glossSequence, playMotion, playSequence, stopMotion]);
 
   useEffect(() => {
     // Play the first animation if available
@@ -26,11 +179,43 @@ function CustomModel({ modelPath }: { modelPath: string }) {
     }
   }, [actions]);
 
-  // Optional: Add custom animations
-  useFrame((state) => {
+  // Apply motion to bones each frame
+  useFrame((state, delta) => {
     if (groupRef.current) {
       // Gentle rotation (optional - comment out if you don't want rotation)
       // groupRef.current.rotation.y = Math.sin(state.clock.elapsedTime * 0.5) * 0.3;
+    }
+
+    // Update motion playback and apply to bones
+    if (playbackState.isPlaying && playbackState.motion) {
+      // Only update every 3 frames to reduce GPU load
+      frameCounter.current++;
+      if (frameCounter.current % 3 !== 0) {
+        return;
+      }
+
+      // Update frame timing
+      updateFrame(delta);
+
+      // Get current frame data
+      const frame = getCurrentFrame();
+
+      if (frame && boneMap.current) {
+        // Apply body motion (positions + rotations)
+        if (frame.body) {
+          applyBodyMotion(boneMap.current, frame.body);
+        }
+
+        // Apply per-joint hand rotations
+        if (frame.hands) {
+          applyHandMotion(boneMap.current, frame.hands);
+        }
+
+        // Apply face blendshapes
+        if (frame.face && skinnedMesh.current) {
+          applyFaceMotion(skinnedMesh.current, frame.face);
+        }
+      }
     }
   });
 
@@ -113,7 +298,13 @@ function LoadingFallback() {
   );
 }
 
-export default function ModelViewer() {
+export default function ModelViewer({
+  currentGloss,
+  glossSequence,
+}: {
+  currentGloss?: string | null;
+  glossSequence?: string[] | null;
+}) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [isDark, setIsDark] = useState(false);
 
@@ -181,7 +372,11 @@ export default function ModelViewer() {
 
           {/* 3D Model - Use custom model if provided, otherwise use default figure */}
           {customModelPath ? (
-            <CustomModel modelPath={customModelPath} />
+            <CustomModel
+              modelPath={customModelPath}
+              currentGloss={currentGloss}
+              glossSequence={glossSequence}
+            />
           ) : (
             <HumanFigure />
           )}

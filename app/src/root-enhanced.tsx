@@ -15,6 +15,8 @@ export default function BaseLayoutEnhanced() {
   const [predictions, setPredictions] = useState<GlossPrediction[]>([]);
   const [sessionId, setSessionId] = useState<string>("");
   const [isStreaming, setIsStreaming] = useState<boolean>(false);
+  const [currentGloss, setCurrentGloss] = useState<string | null>(null);
+  const [glossSequence, setGlossSequence] = useState<string[] | null>(null);
 
   // Callback to handle new predictions from camera stream
   const handlePrediction = useCallback((prediction: GlossPrediction) => {
@@ -23,10 +25,19 @@ export default function BaseLayoutEnhanced() {
       const updated = [...prev, prediction];
       console.log(
         "📊 [ROOT] Predictions array updated. Total:",
-        updated.length
+        updated.length,
       );
       return updated;
     });
+
+    // Update current gloss for 3D animation (single gloss from camera)
+    if (prediction.gloss && prediction.gloss !== "NONE") {
+      console.log(
+        "🎬 [ROOT] Setting current gloss for animation:",
+        prediction.gloss,
+      );
+      setCurrentGloss(prediction.gloss);
+    }
   }, []);
 
   // Clear predictions when streaming starts (new session)
@@ -34,13 +45,26 @@ export default function BaseLayoutEnhanced() {
     if (isStreaming) {
       console.log("🚀 [ROOT] Streaming started - clearing old predictions");
       setPredictions([]);
+      setCurrentGloss(null);
+      setGlossSequence(null);
     } else {
       console.log(
         "⏹️ [ROOT] Streaming stopped. Final predictions count:",
-        predictions.length
+        predictions.length,
       );
     }
   }, [isStreaming]);
+
+  // TESTING: Expose function to manually set sequence from browser console
+  useEffect(() => {
+    (window as any).__setGlossSequence = (glosses: string[]) => {
+      console.log("🎬 [MANUAL] Setting gloss sequence:", glosses);
+      setGlossSequence(glosses);
+    };
+    return () => {
+      delete (window as any).__setGlossSequence;
+    };
+  }, []);
 
   return (
     <div className="[--header-height:calc(--spacing(14))]">
@@ -66,6 +90,8 @@ export default function BaseLayoutEnhanced() {
                 onSessionId={setSessionId}
                 onStreamingChange={setIsStreaming}
                 backendUrl="ws://localhost:8000"
+                currentGloss={currentGloss}
+                glossSequence={glossSequence}
               />
             </div>
           </SidebarInset>

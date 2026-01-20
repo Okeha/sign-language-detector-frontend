@@ -11,6 +11,8 @@ interface RightPanelEnhancedProps {
   onSessionId: (sessionId: string) => void;
   onStreamingChange?: (isStreaming: boolean) => void;
   backendUrl: string;
+  currentGloss?: string | null;
+  glossSequence?: string[] | null;
 }
 
 export function RightPanelEnhanced({
@@ -18,6 +20,8 @@ export function RightPanelEnhanced({
   onSessionId,
   onStreamingChange,
   backendUrl,
+  currentGloss,
+  glossSequence,
 }: RightPanelEnhancedProps) {
   return (
     <aside className="flex h-full w-[450px] flex-col border-l bg-sidebar">
@@ -71,7 +75,10 @@ export function RightPanelEnhanced({
             </div>
           </div>
           <div className="flex-1 rounded-lg overflow-hidden bg-gradient-to-br from-purple-50 to-blue-50 dark:from-purple-950/20 dark:to-blue-950/20 shadow-inner">
-            <ModelViewer />
+            <ModelViewer
+              currentGloss={currentGloss}
+              glossSequence={glossSequence}
+            />
           </div>
         </div>
       </div>
