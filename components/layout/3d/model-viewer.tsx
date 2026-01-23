@@ -51,9 +51,30 @@ function CustomModel({
 
   useEffect(() => {
     if (scene) {
+      try {
+        (window as any).__MAPPER_DEBUG = true;
+      } catch (e) {
+        // ignore in non-browser contexts
+      }
+
       boneMap.current = buildBoneMap(scene);
       skinnedMesh.current = findSkinnedMesh(scene);
       console.log(`🦴 Built bone map with ${boneMap.current.size} bones`);
+      try {
+        // Always print bone keys and morph targets once to help mapping
+        console.debug(
+          "MAPPER DEBUG — boneMap keys:",
+          Array.from(boneMap.current.keys()),
+        );
+        if (skinnedMesh.current && skinnedMesh.current.morphTargetDictionary) {
+          console.debug(
+            "MAPPER DEBUG — morph targets:",
+            Object.keys(skinnedMesh.current.morphTargetDictionary),
+          );
+        }
+      } catch (e) {
+        // ignore
+      }
     }
 
     // Cleanup on unmount
@@ -179,39 +200,60 @@ function CustomModel({
     }
   }, [actions]);
 
-  // Apply motion to bones each frame
+  // // Apply motion to bones each frame
+  // useFrame((state, delta) => {
+  //   if (groupRef.current) {
+  //     // Gentle rotation (optional - comment out if you don't want rotation)
+  //     // groupRef.current.rotation.y = Math.sin(state.clock.elapsedTime * 0.5) * 0.3;
+  //   }
+
+  //   // Update motion playback and apply to bones
+  //   if (playbackState.isPlaying && playbackState.motion) {
+  //     // Only update every 3 frames to reduce GPU load
+  //     frameCounter.current++;
+  //     if (frameCounter.current % 3 !== 0) {
+  //       return;
+  //     }
+
+  //     // Update frame timing
+  //     updateFrame(delta);
+
+  //     // Get current frame data
+  //     const frame = getCurrentFrame();
+
+  //     if (frame && boneMap.current) {
+  //       // Apply body motion (positions + rotations)
+  //       if (frame.body) {
+  //         applyBodyMotion(boneMap.current, frame.body);
+  //       }
+
+  //       // Apply per-joint hand rotations
+  //       if (frame.hands) {
+  //         applyHandMotion(boneMap.current, frame.hands);
+  //       }
+
+  //       // Apply face blendshapes
+  //       if (frame.face && skinnedMesh.current) {
+  //         applyFaceMotion(skinnedMesh.current, frame.face);
+  //       }
+  //     }
+  //   }
+  // });
+
+  // The useFrame should just be:
   useFrame((state, delta) => {
-    if (groupRef.current) {
-      // Gentle rotation (optional - comment out if you don't want rotation)
-      // groupRef.current.rotation.y = Math.sin(state.clock.elapsedTime * 0.5) * 0.3;
-    }
-
-    // Update motion playback and apply to bones
     if (playbackState.isPlaying && playbackState.motion) {
-      // Only update every 3 frames to reduce GPU load
-      frameCounter.current++;
-      if (frameCounter.current % 3 !== 0) {
-        return;
-      }
-
-      // Update frame timing
       updateFrame(delta);
 
-      // Get current frame data
       const frame = getCurrentFrame();
 
       if (frame && boneMap.current) {
-        // Apply body motion (positions + rotations)
         if (frame.body) {
           applyBodyMotion(boneMap.current, frame.body);
         }
-
-        // Apply per-joint hand rotations
         if (frame.hands) {
           applyHandMotion(boneMap.current, frame.hands);
         }
-
-        // Apply face blendshapes
         if (frame.face && skinnedMesh.current) {
           applyFaceMotion(skinnedMesh.current, frame.face);
         }
@@ -315,6 +357,13 @@ export default function ModelViewer({
   useEffect(() => {
     console.log("3D Model Viewer initialized with Three.js");
 
+    // Enable mapper debug by default for easier troubleshooting in dev
+    try {
+      (window as any).__MAPPER_DEBUG = true;
+    } catch (e) {
+      // ignore in non-browser contexts
+    }
+
     // Preload the model if path is provided
     if (customModelPath) {
       useGLTF.preload(customModelPath);
@@ -349,12 +398,12 @@ export default function ModelViewer({
           }}
         >
           <PerspectiveCamera makeDefault position={[0, 1.5, 1.5]} />
-          {/* <OrbitControls
+          <OrbitControls
             enablePan={false}
             minDistance={1.5}
             maxDistance={5}
             target={[0, 1, 0]}
-          /> */}
+          />
 
           {/* Lighting */}
           <ambientLight intensity={isDark ? 0.4 : 0.6} />
