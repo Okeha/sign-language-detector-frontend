@@ -1,18 +1,18 @@
 import * as THREE from 'three';
-import * as Kalidokit from 'kalidokit';
 import { FaceBlendshapes } from '@/types/motion';
 
 // ============================================
 // CONFIGURATION
 // ============================================
 const CONFIG = {
-    BLEND_FACTOR: 0.5,
     DEBUG: false,
+    POSITION_SCALE: 1.0,
+    SWAP_SIDES: false,  // Try false first since you said arms are switched
 };
 
 if (typeof window !== 'undefined') {
     (window as any).__MOTION_CONFIG = CONFIG;
-    console.log('🎮 Motion config available at window.__MOTION_CONFIG');
+    console.log('🎮 Motion config: window.__MOTION_CONFIG');
 }
 
 // ============================================
@@ -25,134 +25,119 @@ function getBone(boneMap: Map<string, THREE.Bone>, name: string): THREE.Bone | u
     return undefined;
 }
 
-// Helper to apply rotation with blending AND clamping
-function applyRotation(
-    bone: THREE.Bone | undefined,
-    rotation: { x: number; y: number; z: number } | undefined,
+// ============================================
+// POSITION-BASED ARM SOLVER (IK)
+// ============================================
+
+function solveArmIK(
+    shoulderBone: THREE.Bone | undefined,
+    elbowBone: THREE.Bone | undefined,
+    shoulderPos: { x: number; y: number; z: number },
+    elbowPos: { x: number; y: number; z: number },
+    wristPos: { x: number; y: number; z: number },
     label: string = ''
 ): void {
-    if (!bone || !rotation) return;
+    if (!shoulderBone || !elbowBone) return;
 
-    // Clamp rotations to reasonable range (prevent crazy spinning)
-    const clamp = (val: number, limit: number = Math.PI) => {
-        return Math.max(-limit, Math.min(limit, val));
-    };
+    const scale = CONFIG.POSITION_SCALE;
 
-    const x = clamp(rotation.x);
-    const y = clamp(rotation.y);
-    const z = clamp(rotation.z);
+    // Convert positions - NEGATE Y for Three.js coordinate system
+    const shoulder = new THREE.Vector3(
+        shoulderPos.x * scale,
+        -shoulderPos.y * scale,
+        shoulderPos.z * scale
+    );
+    const elbow = new THREE.Vector3(
+        elbowPos.x * scale,
+        -elbowPos.y * scale,
+        elbowPos.z * scale
+    );
+    const wrist = new THREE.Vector3(
+        wristPos.x * scale,
+        -wristPos.y * scale,
+        wristPos.z * scale
+    );
 
-    // Skip if values are NaN or Infinity
-    if (!isFinite(x) || !isFinite(y) || !isFinite(z)) {
-        if (CONFIG.DEBUG) {
-            console.warn(`${label} Invalid rotation:`, rotation);
-        }
-        return;
+    // Calculate direction vectors
+    const upperArmDir = new THREE.Vector3().subVectors(elbow, shoulder).normalize();
+    const lowerArmDir = new THREE.Vector3().subVectors(wrist, elbow).normalize();
+
+    // RPM arms point along +Y in local space
+    const restDir = new THREE.Vector3(0, 1, 0);
+
+    // Calculate and apply upper arm rotation
+    const upperArmQuat = new THREE.Quaternion().setFromUnitVectors(restDir, upperArmDir);
+
+    const parentWorldQuat = new THREE.Quaternion();
+    if (shoulderBone.parent) {
+        shoulderBone.parent.getWorldQuaternion(parentWorldQuat);
     }
+    const localUpperQuat = parentWorldQuat.clone().invert().multiply(upperArmQuat);
+    shoulderBone.quaternion.copy(localUpperQuat);
 
-    const target = new THREE.Euler(x, y, z);
+    // Calculate and apply lower arm rotation
+    const lowerArmQuat = new THREE.Quaternion().setFromUnitVectors(restDir, lowerArmDir);
 
-    if (CONFIG.BLEND_FACTOR >= 1) {
-        bone.rotation.copy(target);
-    } else {
-        bone.rotation.x += (target.x - bone.rotation.x) * CONFIG.BLEND_FACTOR;
-        bone.rotation.y += (target.y - bone.rotation.y) * CONFIG.BLEND_FACTOR;
-        bone.rotation.z += (target.z - bone.rotation.z) * CONFIG.BLEND_FACTOR;
-    }
+    const elbowParentWorldQuat = new THREE.Quaternion();
+    shoulderBone.getWorldQuaternion(elbowParentWorldQuat);
+    const localLowerQuat = elbowParentWorldQuat.clone().invert().multiply(lowerArmQuat);
+    elbowBone.quaternion.copy(localLowerQuat);
 
     if (CONFIG.DEBUG) {
-        console.log(`${label} ${bone.name}:`, { x: x.toFixed(3), y: y.toFixed(3), z: z.toFixed(3) });
+        console.log(`${label} shoulder→elbow:`, upperArmDir);
+        console.log(`${label} elbow→wrist:`, lowerArmDir);
     }
 }
 
 // ============================================
-// BODY MOTION (Using Kalidokit) - FIXED
+// BODY MOTION
 // ============================================
 
 export function applyBodyMotion(
     boneMap: Map<string, THREE.Bone>,
     bodyData: any
 ): void {
-    if (!bodyData?.worldLandmarks) return;
+    if (!bodyData) return;
 
-    const landmarks = bodyData.worldLandmarks;
+    const leftArm = getBone(boneMap, 'LeftArm');
+    const leftForeArm = getBone(boneMap, 'LeftForeArm');
+    const rightArm = getBone(boneMap, 'RightArm');
+    const rightForeArm = getBone(boneMap, 'RightForeArm');
 
-    // Kalidokit expects: Pose.solve(landmarks2D, landmarks3D)
-    // Since we only have world landmarks, create fake 2D by projecting
-    const landmarks2D = landmarks.map((lm: any) => ({
-        x: (lm.x + 1) / 2,
-        y: (-lm.y + 1) / 2,  // Flip Y for screen coords
-        z: lm.z,
-        visibility: lm.visibility ?? 1
-    }));
+    const jsonLeftShoulder = bodyData.left_shoulder;
+    const jsonLeftElbow = bodyData.left_elbow;
+    const jsonLeftWrist = bodyData.left_wrist;
 
-    // Solve pose
-    const pose = Kalidokit.Pose.solve(landmarks2D, landmarks);
+    const jsonRightShoulder = bodyData.right_shoulder;
+    const jsonRightElbow = bodyData.right_elbow;
+    const jsonRightWrist = bodyData.right_wrist;
 
-    if (!pose) return;
-
-    // Only apply arm rotations for sign language
-    // Skip Hips/Spine/Legs to prevent model from flying away
-
-    // Left Arm
-    applyRotation(getBone(boneMap, 'LeftArm'), pose.LeftUpperArm, '[L_ARM]');
-    applyRotation(getBone(boneMap, 'LeftForeArm'), pose.LeftLowerArm, '[L_FOREARM]');
-
-    // Right Arm
-    applyRotation(getBone(boneMap, 'RightArm'), pose.RightUpperArm, '[R_ARM]');
-    applyRotation(getBone(boneMap, 'RightForeArm'), pose.RightLowerArm, '[R_FOREARM]');
-}
-
-// ============================================
-// HAND MOTION (Using Kalidokit)
-// ============================================
-
-function applyFingerRotations(
-    boneMap: Map<string, THREE.Bone>,
-    handResult: any,
-    side: 'Left' | 'Right'
-): void {
-    // Wrist
-    applyRotation(getBone(boneMap, `${side}Hand`), handResult[`${side}Wrist`], `[${side}_WRIST]`);
-
-    // Fingers
-    const fingers = ['Thumb', 'Index', 'Middle', 'Ring', 'Pinky'];
-    const segments = ['Metacarpal', 'Proximal', 'Intermediate', 'Distal'];
-    const boneNumbers = ['1', '2', '3', '4'];
-
-    for (const finger of fingers) {
-        for (let i = 0; i < segments.length; i++) {
-            const kalidokitKey = `${side}${finger}${segments[i]}`;
-            const boneName = `${side}Hand${finger}${boneNumbers[i]}`;
-
-            if (handResult[kalidokitKey]) {
-                applyRotation(getBone(boneMap, boneName), handResult[kalidokitKey], `[${boneName}]`);
-            }
+    if (CONFIG.SWAP_SIDES) {
+        if (jsonLeftShoulder && jsonLeftElbow && jsonLeftWrist) {
+            solveArmIK(rightArm, rightForeArm, jsonLeftShoulder, jsonLeftElbow, jsonLeftWrist, '[R_ARM]');
+        }
+        if (jsonRightShoulder && jsonRightElbow && jsonRightWrist) {
+            solveArmIK(leftArm, leftForeArm, jsonRightShoulder, jsonRightElbow, jsonRightWrist, '[L_ARM]');
+        }
+    } else {
+        if (jsonLeftShoulder && jsonLeftElbow && jsonLeftWrist) {
+            solveArmIK(leftArm, leftForeArm, jsonLeftShoulder, jsonLeftElbow, jsonLeftWrist, '[L_ARM]');
+        }
+        if (jsonRightShoulder && jsonRightElbow && jsonRightWrist) {
+            solveArmIK(rightArm, rightForeArm, jsonRightShoulder, jsonRightElbow, jsonRightWrist, '[R_ARM]');
         }
     }
 }
+
+// ============================================
+// HAND MOTION
+// ============================================
 
 export function applyHandMotion(
     boneMap: Map<string, THREE.Bone>,
     handsData: any
 ): void {
-    if (!handsData) return;
-
-    // Left hand
-    if (handsData.left?.landmarks && Array.isArray(handsData.left.landmarks)) {
-        const leftHand = Kalidokit.Hand.solve(handsData.left.landmarks, 'Left');
-        if (leftHand) {
-            applyFingerRotations(boneMap, leftHand, 'Left');
-        }
-    }
-
-    // Right hand
-    if (handsData.right?.landmarks && Array.isArray(handsData.right.landmarks)) {
-        const rightHand = Kalidokit.Hand.solve(handsData.right.landmarks, 'Right');
-        if (rightHand) {
-            applyFingerRotations(boneMap, rightHand, 'Right');
-        }
-    }
+    // Skip for now
 }
 
 // ============================================
