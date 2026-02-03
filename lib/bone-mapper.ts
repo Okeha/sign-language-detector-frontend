@@ -9,18 +9,20 @@ const CONFIG = {
     POSITION_SCALE: 1.0,
     SWAP_SIDES: false,
 
-    // Arm offsets to prevent clipping/awkward poses
     ARM_Z_OFFSET: 0.3,
     ARM_X_OFFSET: -0.05,
 
     // Finger settings
-    FINGER_CURL_MULTIPLIER: 0.35,
+    FINGER_CURL_MULTIPLIER: 1.0,
+    FINGER_SPREAD_MULTIPLIER: 0.5,
 
-    // Smoothing (0 = none, 0.5 = moderate, 0.8 = very smooth)
+    // Smoothing
     ARM_SMOOTHING: 0.3,
-    FINGER_SMOOTHING: 0.6,
+    WRIST_SMOOTHING: 0.4,
+    FINGER_SMOOTHING: 0.5,
 };
 
+// Debug helpers
 if (typeof window !== 'undefined') {
     (window as any).__MOTION_CONFIG = CONFIG;
     (window as any).setArmOffset = (val: number) => {
@@ -43,7 +45,11 @@ if (typeof window !== 'undefined') {
         CONFIG.ARM_SMOOTHING = val;
         console.log(`ARM_SMOOTHING set to ${val}`);
     };
-    console.log('🎮 Config: setArmOffset(n) | setArmXOffset(n) | setFingerCurl(n) | setFingerSmoothing(n) | setArmSmoothing(n)');
+    (window as any).setWristSmoothing = (val: number) => {
+        CONFIG.WRIST_SMOOTHING = val;
+        console.log(`WRIST_SMOOTHING set to ${val}`);
+    };
+    console.log('🎮 Config: setArmOffset(n) | setArmXOffset(n) | setFingerCurl(n) | setFingerSmoothing(n) | setArmSmoothing(n) | setWristSmoothing(n)');
 }
 
 // ============================================
@@ -58,7 +64,7 @@ const HL = {
     PINKY_MCP: 17, PINKY_PIP: 18, PINKY_DIP: 19, PINKY_TIP: 20,
 };
 
-// Finger landmark chains: [base, joint1, joint2, joint3, tip]
+// Finger joint chains: [base, proximal, intermediate, distal, tip]
 const FINGER_CHAINS = {
     thumb: [HL.WRIST, HL.THUMB_CMC, HL.THUMB_MCP, HL.THUMB_IP, HL.THUMB_TIP],
     index: [HL.WRIST, HL.INDEX_MCP, HL.INDEX_PIP, HL.INDEX_DIP, HL.INDEX_TIP],
@@ -67,7 +73,7 @@ const FINGER_CHAINS = {
     pinky: [HL.WRIST, HL.PINKY_MCP, HL.PINKY_PIP, HL.PINKY_DIP, HL.PINKY_TIP],
 };
 
-// RPM bone names - 4 bones per finger
+// RPM bone names
 const FINGER_BONES = {
     left: {
         thumb: ['LeftHandThumb1', 'LeftHandThumb2', 'LeftHandThumb3', 'LeftHandThumb4'],
@@ -85,8 +91,13 @@ const FINGER_BONES = {
     },
 };
 
+const WRIST_BONES = {
+    left: 'LeftHand',
+    right: 'RightHand',
+};
+
 // ============================================
-// SMOOTHING CACHE
+// SMOOTHING STATE
 // ============================================
 const previousQuaternions: Map<string, THREE.Quaternion> = new Map();
 
@@ -98,11 +109,11 @@ function getSmoothedQuaternion(
     const result = new THREE.Quaternion();
 
     if (smoothing <= 0) {
+        previousQuaternions.set(boneName, targetQuat.clone());
         return targetQuat.clone();
     }
 
     const prevQuat = previousQuaternions.get(boneName);
-
     if (prevQuat) {
         result.slerpQuaternions(prevQuat, targetQuat, 1 - smoothing);
     } else {
@@ -110,7 +121,6 @@ function getSmoothedQuaternion(
     }
 
     previousQuaternions.set(boneName, result.clone());
-
     return result;
 }
 
@@ -122,18 +132,15 @@ function getBone(boneMap: Map<string, THREE.Bone>, name: string): THREE.Bone | u
     return boneMap.get(name) || boneMap.get(name.toLowerCase());
 }
 
-function landmarkToVec3(
-    lm: { x: number; y: number; z: number },
-    mirrorX: boolean = false
-): THREE.Vector3 {
-    // Mirror X for left hand to fix inverted wrist
-    const x = mirrorX ? -(lm.x - 0.5) : (lm.x - 0.5);
+function landmarkToVec3(lm: { x: number; y: number; z: number }): THREE.Vector3 {
+    return new THREE.Vector3(lm.x, lm.y, lm.z);
+}
 
-    return new THREE.Vector3(
-        x,
-        -(lm.y - 0.5),
-        -lm.z
-    );
+function vec3FromLandmarks(
+    landmarks: Array<{ x: number; y: number; z: number }>,
+    index: number
+): THREE.Vector3 {
+    return landmarkToVec3(landmarks[index]);
 }
 
 // ============================================
@@ -239,30 +246,176 @@ export function applyBodyMotion(
 }
 
 // ============================================
+// WRIST ORIENTATION - FIXED 90° TWIST
+// ============================================
+
+function applyWristOrientation(
+    boneMap: Map<string, THREE.Bone>,
+    handData: any,
+    side: 'left' | 'right'
+): void {
+    const wristBoneName = WRIST_BONES[side];
+    const wristBone = getBone(boneMap, wristBoneName);
+
+    if (!wristBone || !handData?.wrist_quaternion) return;
+
+    const wq = handData.wrist_quaternion;
+    const targetQuat = new THREE.Quaternion(wq.x, wq.y, wq.z, wq.w);
+
+    // Convert from world space to local space
+    const parentWorldQuat = new THREE.Quaternion();
+    if (wristBone.parent) {
+        wristBone.parent.getWorldQuaternion(parentWorldQuat);
+    }
+
+    // RPM rest pose offset
+    // Z rotation controls HORIZONTAL twist (finger pointing direction)
+    // Changed from PI/2 to PI (added 90° more horizontal rotation)
+    const restPoseOffset = new THREE.Quaternion();
+    if (side === 'left') {
+        restPoseOffset.setFromEuler(new THREE.Euler(0, 0, 0));  // Was PI/2, now PI
+    } else {
+        restPoseOffset.setFromEuler(new THREE.Euler(0, 0, 0)); // Was -PI/2, now -PI
+    }
+
+    const localQuat = parentWorldQuat.clone().invert()
+        .multiply(targetQuat)
+        .multiply(restPoseOffset);
+
+    const smoothedQuat = getSmoothedQuaternion(
+        wristBoneName,
+        localQuat,
+        CONFIG.WRIST_SMOOTHING
+    );
+
+    wristBone.quaternion.copy(smoothedQuat);
+}
+
+// ============================================
 // FINGER PROCESSING
 // ============================================
 
-function getJointBendAngle(a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vector3): number {
-    const ba = new THREE.Vector3().subVectors(a, b).normalize();
-    const bc = new THREE.Vector3().subVectors(c, b).normalize();
-    const dot = THREE.MathUtils.clamp(ba.dot(bc), -1, 1);
-    return Math.acos(dot);
+function calculateFingerRotations(
+    landmarks: Array<{ x: number; y: number; z: number }>,
+    fingerName: keyof typeof FINGER_CHAINS,
+    side: 'left' | 'right'
+): THREE.Quaternion[] {
+    const chain = FINGER_CHAINS[fingerName];
+    const rotations: THREE.Quaternion[] = [];
+
+    const isThumb = fingerName === 'thumb';
+    const isLeft = side === 'left';
+
+    const positions = chain.map(idx => vec3FromLandmarks(landmarks, idx));
+
+    for (let i = 0; i < 4; i++) {
+        const p0 = positions[Math.max(0, i)];
+        const p1 = positions[i + 1];
+        const p2 = positions[Math.min(i + 2, 4)];
+
+        const v1 = new THREE.Vector3().subVectors(p0, p1).normalize();
+        const v2 = new THREE.Vector3().subVectors(p2, p1).normalize();
+
+        const dot = THREE.MathUtils.clamp(v1.dot(v2), -1, 1);
+        const bendAngle = Math.acos(dot);
+
+        let curlAmount = (Math.PI - bendAngle) * CONFIG.FINGER_CURL_MULTIPLIER;
+
+        let maxCurl = Math.PI * 0.5;
+        if (i === 0) maxCurl = Math.PI * 0.4;
+        if (i === 3) maxCurl = Math.PI * 0.35;
+
+        curlAmount = THREE.MathUtils.clamp(curlAmount, 0, maxCurl);
+
+        let rotation: THREE.Quaternion;
+
+        if (isThumb) {
+            const curlAxis = new THREE.Vector3(1, 0, 0);
+            const spreadAxis = new THREE.Vector3(0, 0, 1);
+
+            const spreadAngle = calculateThumbSpread(landmarks, i, isLeft);
+
+            const curlQuat = new THREE.Quaternion().setFromAxisAngle(curlAxis, curlAmount);
+            const spreadQuat = new THREE.Quaternion().setFromAxisAngle(spreadAxis, spreadAngle);
+
+            rotation = spreadQuat.multiply(curlQuat);
+        } else {
+            const curlAxis = new THREE.Vector3(1, 0, 0);
+            rotation = new THREE.Quaternion().setFromAxisAngle(curlAxis, curlAmount);
+
+            if (i === 0) {
+                const spreadAngle = calculateFingerSpread(landmarks, fingerName, isLeft);
+                const spreadAxis = new THREE.Vector3(0, isLeft ? -1 : 1, 0);
+                const spreadQuat = new THREE.Quaternion().setFromAxisAngle(spreadAxis, spreadAngle);
+                rotation.premultiply(spreadQuat);
+            }
+        }
+
+        rotations.push(rotation);
+    }
+
+    return rotations;
 }
 
-function processFingerCurlOnly(
+function calculateThumbSpread(
+    landmarks: Array<{ x: number; y: number; z: number }>,
+    jointIndex: number,
+    isLeft: boolean
+): number {
+    const thumbTip = vec3FromLandmarks(landmarks, HL.THUMB_TIP);
+    const indexMcp = vec3FromLandmarks(landmarks, HL.INDEX_MCP);
+    const wrist = vec3FromLandmarks(landmarks, HL.WRIST);
+
+    const thumbDir = new THREE.Vector3().subVectors(thumbTip, wrist).normalize();
+    const indexDir = new THREE.Vector3().subVectors(indexMcp, wrist).normalize();
+
+    const cross = new THREE.Vector3().crossVectors(indexDir, thumbDir);
+
+    let spreadAngle = Math.asin(THREE.MathUtils.clamp(cross.y, -1, 1));
+    spreadAngle *= CONFIG.FINGER_SPREAD_MULTIPLIER;
+    spreadAngle *= (1 - jointIndex * 0.3);
+
+    return isLeft ? -spreadAngle : spreadAngle;
+}
+
+function calculateFingerSpread(
+    landmarks: Array<{ x: number; y: number; z: number }>,
+    fingerName: keyof typeof FINGER_CHAINS,
+    isLeft: boolean
+): number {
+    const fingerMcpIndices: Record<string, number> = {
+        index: HL.INDEX_MCP,
+        middle: HL.MIDDLE_MCP,
+        ring: HL.RING_MCP,
+        pinky: HL.PINKY_MCP,
+    };
+
+    const mcpIdx = fingerMcpIndices[fingerName];
+    if (!mcpIdx) return 0;
+
+    const wrist = vec3FromLandmarks(landmarks, HL.WRIST);
+    const middleMcp = vec3FromLandmarks(landmarks, HL.MIDDLE_MCP);
+    const fingerMcp = vec3FromLandmarks(landmarks, mcpIdx);
+
+    const refDir = new THREE.Vector3().subVectors(middleMcp, wrist).normalize();
+    const fingerDir = new THREE.Vector3().subVectors(fingerMcp, wrist).normalize();
+
+    const cross = new THREE.Vector3().crossVectors(refDir, fingerDir);
+    let spreadAngle = Math.asin(THREE.MathUtils.clamp(cross.z, -1, 1));
+
+    spreadAngle *= CONFIG.FINGER_SPREAD_MULTIPLIER;
+
+    return spreadAngle;
+}
+
+function applyFingerRotations(
     boneMap: Map<string, THREE.Bone>,
     landmarks: Array<{ x: number; y: number; z: number }>,
     fingerName: keyof typeof FINGER_CHAINS,
     side: 'left' | 'right'
 ): void {
-    const chain = FINGER_CHAINS[fingerName];
     const boneNames = FINGER_BONES[side][fingerName];
-
-    const isThumb = fingerName === 'thumb';
-    const isLeft = side === 'left';
-
-    // Mirror X for left hand to fix inverted wrist
-    const positions = chain.map(idx => landmarkToVec3(landmarks[idx], isLeft));
+    const rotations = calculateFingerRotations(landmarks, fingerName, side);
 
     for (let i = 0; i < 4; i++) {
         const boneName = boneNames[i];
@@ -270,34 +423,9 @@ function processFingerCurlOnly(
 
         if (!bone) continue;
 
-        const p0 = positions[Math.max(0, i)];
-        const p1 = positions[Math.min(i + 1, 4)];
-        const p2 = positions[Math.min(i + 2, 4)];
-
-        const bendAngle = getJointBendAngle(p0, p1, p2);
-
-        // Convert to curl amount
-        let curlAmount = (Math.PI - bendAngle) * CONFIG.FINGER_CURL_MULTIPLIER;
-
-        // Clamp to prevent hyper-extension
-        curlAmount = THREE.MathUtils.clamp(curlAmount, 0, Math.PI * 0.5);
-
-        // Rotation axis
-        let axis: THREE.Vector3;
-
-        if (isThumb) {
-            // Thumb curls on a diagonal axis
-            axis = new THREE.Vector3(1, 0, isLeft ? 0.5 : -0.5).normalize();
-        } else {
-            // Regular fingers curl around local X axis
-            axis = new THREE.Vector3(1, 0, 0);
-        }
-
-        const targetQuat = new THREE.Quaternion().setFromAxisAngle(axis, curlAmount);
-
         const smoothedQuat = getSmoothedQuaternion(
             boneName,
-            targetQuat,
+            rotations[i],
             CONFIG.FINGER_SMOOTHING
         );
 
@@ -318,16 +446,18 @@ export function applyHandMotion(
     const fingers: Array<keyof typeof FINGER_CHAINS> = ['thumb', 'index', 'middle', 'ring', 'pinky'];
 
     if (handsData.left?.landmarks?.length === 21) {
-        const landmarks = handsData.left.landmarks;
+        applyWristOrientation(boneMap, handsData.left, 'left');
+
         for (const finger of fingers) {
-            processFingerCurlOnly(boneMap, landmarks, finger, 'left');
+            applyFingerRotations(boneMap, handsData.left.landmarks, finger, 'left');
         }
     }
 
     if (handsData.right?.landmarks?.length === 21) {
-        const landmarks = handsData.right.landmarks;
+        applyWristOrientation(boneMap, handsData.right, 'right');
+
         for (const finger of fingers) {
-            processFingerCurlOnly(boneMap, landmarks, finger, 'right');
+            applyFingerRotations(boneMap, handsData.right.landmarks, finger, 'right');
         }
     }
 }
