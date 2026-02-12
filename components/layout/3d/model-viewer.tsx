@@ -16,10 +16,12 @@ import {
   applyBodyMotion,
   applyHandMotion,
   applyFaceMotion,
+  resetSmoothingCache,
 } from "@/lib/bone-mapper";
 
+// ============================================
 // Custom 3D Model Component
-// In model-viewer.tsx, update the CustomModel component:
+// ============================================
 
 function CustomModel({
   modelPath,
@@ -40,16 +42,13 @@ function CustomModel({
     playMotion,
     playSequence,
     stopMotion,
-    getCurrentFrame,
-    updateFrame,
+    getInterpolatedFrame,
   } = useMotionPlayer();
 
   const boneMap = useRef<Map<string, THREE.Bone> | null>(null);
   const skinnedMesh = useRef<THREE.SkinnedMesh | null>(null);
 
-  // FPS throttling
-  const lastFrameTime = useRef(0);
-
+  // Build bone map on scene load
   useEffect(() => {
     if (scene) {
       boneMap.current = buildBoneMap(scene);
@@ -85,7 +84,12 @@ function CustomModel({
     };
   }, [scene]);
 
+  // React to gloss / sequence changes
   useEffect(() => {
+    // Reset smoothing cache when switching glosses to avoid
+    // carry-over quaternions from previous animation
+    resetSmoothingCache();
+
     if (glossSequence && glossSequence.length > 0) {
       console.log(`🎬 Loading motion sequence: [${glossSequence.join(", ")}]`);
       playSequence(glossSequence);
@@ -97,6 +101,7 @@ function CustomModel({
     }
   }, [currentGloss, glossSequence, playMotion, playSequence, stopMotion]);
 
+  // Play any embedded GLB animations (idle, etc.)
   useEffect(() => {
     if (actions && Object.keys(actions).length > 0) {
       const firstAnimation = Object.values(actions)[0];
@@ -104,37 +109,24 @@ function CustomModel({
     }
   }, [actions]);
 
-  // OPTIMIZED: Synced to motion data fps (30fps)
-  useFrame((state, delta) => {
-    if (playbackState.isPlaying && playbackState.motion) {
-      // Get fps from motion data (default 30)
-      const motionFps = playbackState.motion.fps || 30;
-      const frameDuration = 1 / motionFps;
+  // ✅ Single animation loop — delta comes from Three.js clock
+  useFrame((_state, delta) => {
+    if (!playbackState.isPlaying || !boneMap.current) return;
 
-      // Accumulate time
-      lastFrameTime.current += delta;
+    // Clamp delta to avoid huge jumps when tab is inactive
+    const clampedDelta = Math.min(delta, 0.1);
 
-      // Only update when enough time has passed for next frame
-      if (lastFrameTime.current < frameDuration) return;
+    const frame = getInterpolatedFrame(clampedDelta);
 
-      // Reset timer (keep remainder for accuracy)
-      lastFrameTime.current = lastFrameTime.current % frameDuration;
-
-      // Now do the actual update
-      updateFrame(frameDuration);
-
-      const frame = getCurrentFrame();
-
-      if (frame && boneMap.current) {
-        if (frame.body) {
-          applyBodyMotion(boneMap.current, frame.body);
-        }
-        if (frame.hands) {
-          applyHandMotion(boneMap.current, frame.hands);
-        }
-        if (frame.face && skinnedMesh.current) {
-          applyFaceMotion(skinnedMesh.current, frame.face);
-        }
+    if (frame) {
+      if (frame.body) {
+        applyBodyMotion(boneMap.current, frame.body);
+      }
+      if (frame.hands) {
+        applyHandMotion(boneMap.current, frame.hands);
+      }
+      if (frame.face && skinnedMesh.current) {
+        applyFaceMotion(skinnedMesh.current, frame.face);
       }
     }
   });
@@ -146,7 +138,10 @@ function CustomModel({
   );
 }
 
+// ============================================
 // Loading fallback
+// ============================================
+
 function LoadingFallback() {
   return (
     <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-purple-50/50 to-blue-50/50 dark:from-purple-950/20 dark:to-blue-950/20">
@@ -157,6 +152,10 @@ function LoadingFallback() {
     </div>
   );
 }
+
+// ============================================
+// Main Viewer Component
+// ============================================
 
 export default function ModelViewer({
   currentGloss,
