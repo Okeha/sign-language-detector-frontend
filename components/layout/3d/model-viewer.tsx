@@ -167,7 +167,8 @@ export default function ModelViewer({
   const containerRef = useRef<HTMLDivElement>(null);
   const [isDark, setIsDark] = useState(false);
 
-  const customModelPath: string | null = "/models/Static_Me.glb";
+  // const customModelPath: string | null = "/models/Static_Me.glb";
+  const customModelPath: string | null = "/models/Dami.glb";
 
   useEffect(() => {
     console.log("3D Model Viewer initialized");
