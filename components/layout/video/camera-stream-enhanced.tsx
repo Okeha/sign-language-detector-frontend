@@ -47,12 +47,12 @@ export default function CameraStream({
     (prediction: GlossPrediction) => {
       console.log(
         "📹 [CAMERA] Prediction received from WebSocket:",
-        prediction
+        prediction.gloss,
       );
-      console.log("📹 [CAMERA] Calling parent onPrediction callback");
+      // console.log("📹 [CAMERA] Calling parent onPrediction callback");
       onPrediction?.(prediction);
     },
-    [onPrediction]
+    [onPrediction],
   );
 
   const {
@@ -68,7 +68,7 @@ export default function CameraStream({
     sendFrames,
   } = useSignLanguageStream(
     backendUrl,
-    handlePredictionWithLogging
+    handlePredictionWithLogging,
   ) as ReturnType<typeof useSignLanguageStream> & {
     sendFrames: (frames: string[]) => boolean;
   };
@@ -144,10 +144,10 @@ export default function CameraStream({
 
     // Send immediately when ready
     if (frameBuffer.frames.length === 60) {
-      console.log("📤 Sending 60 frames to backend...");
+      // console.log("📤 Sending 60 frames to backend...");
       const success = sendFrames(frameBuffer.frames);
       if (success) {
-        console.log("✅ Frames sent successfully");
+        // console.log("✅ Frames sent successfully");
         frameBuffer.clear();
       } else {
         console.error("❌ Failed to send frames");

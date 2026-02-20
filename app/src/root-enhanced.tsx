@@ -20,7 +20,7 @@ export default function BaseLayoutEnhanced() {
 
   // Callback to handle new predictions from camera stream
   const handlePrediction = useCallback((prediction: GlossPrediction) => {
-    console.log("🎯 [ROOT] New prediction received:", prediction);
+    // console.log("🎯 [ROOT] New prediction received:", prediction);
     setPredictions((prev) => {
       const updated = [...prev, prediction];
       console.log(
@@ -32,10 +32,11 @@ export default function BaseLayoutEnhanced() {
 
     // Update current gloss for 3D animation (single gloss from camera)
     if (prediction.gloss && prediction.gloss !== "NONE") {
-      console.log(
-        "🎬 [ROOT] Setting current gloss for animation:",
-        prediction.gloss,
-      );
+      // console.log(
+      //   "🎬 [ROOT] Setting current gloss for animation:",
+      //   prediction.gloss,
+      // );
+      console.log(`[ROOT] Current Gloss Noted.`)
       // setCurrentGloss(prediction.gloss);
     }
   }, []);

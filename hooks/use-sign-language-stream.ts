@@ -40,8 +40,8 @@ export function useSignLanguageStream(
 
             ws.onopen = () => {
                 console.log("✅ WebSocket OPENED successfully:", sessionId);
-                console.log("✅ WebSocket readyState:", ws.readyState);
-                console.log("✅ WebSocket URL:", ws.url);
+                // console.log("✅ WebSocket readyState:", ws.readyState);
+                // console.log("✅ WebSocket URL:", ws.url);
                 setIsConnected(true);
                 setError(null);
                 reconnectAttemptsRef.current = 0;
@@ -49,14 +49,14 @@ export function useSignLanguageStream(
 
             ws.onmessage = (event) => {
                 console.log("🔔 ============ ONMESSAGE FIRED ============");
-                console.log("🔔 Event object:", event);
-                console.log("🔔 Event.data type:", typeof event.data);
-                console.log("🔔 Event.data:", event.data);
+                // console.log("🔔 Event object:", event);
+                // console.log("🔔 Event.data type:", typeof event.data);
+                // console.log("🔔 Event.data:", event.data);
 
                 try {
-                    console.log("📨 Raw WebSocket message received:", event.data);
+                    // console.log("📨 Raw WebSocket message received:", event.data);
                     const message = JSON.parse(event.data);
-                    console.log("📦 Parsed message:", message);
+                    // console.log("📦 Parsed message:", message);
 
                     // Check if it's a wrapped message with type field
                     if (message.type) {
@@ -64,9 +64,9 @@ export function useSignLanguageStream(
                             case "prediction":
                                 if (message.data && typeof message.data === "object") {
                                     const prediction = message.data as GlossPrediction;
-                                    console.log("🎯 Prediction extracted (wrapped):", prediction);
+                                    // console.log("🎯 Prediction extracted (wrapped):", prediction);
                                     setLastPrediction(prediction);
-                                    console.log("📞 Calling onPrediction callback with:", prediction);
+                                    // console.log("📞 Calling onPrediction callback with:", prediction);
                                     onPrediction?.(prediction);
                                 }
                                 break;
@@ -92,9 +92,9 @@ export function useSignLanguageStream(
                     // Handle unwrapped prediction (direct format from backend)
                     else if (message.gloss && typeof message.confidence === "number") {
                         const prediction = message as GlossPrediction;
-                        console.log("🎯 Prediction extracted (unwrapped):", prediction);
+                        // console.log("🎯 Prediction extracted (unwrapped):", prediction);
                         setLastPrediction(prediction);
-                        console.log("📞 Calling onPrediction callback with:", prediction);
+                        // console.log("📞 Calling onPrediction callback with:", prediction);
                         onPrediction?.(prediction);
                     }
                     else {
@@ -114,9 +114,9 @@ export function useSignLanguageStream(
 
             ws.onclose = (event) => {
                 console.log("🔴 WebSocket CLOSED");
-                console.log("🔴 Close code:", event.code);
-                console.log("🔴 Close reason:", event.reason);
-                console.log("🔴 Was clean:", event.wasClean);
+                // console.log("🔴 Close code:", event.code);
+                // console.log("🔴 Close reason:", event.reason);
+                // console.log("🔴 Was clean:", event.wasClean);
                 setIsConnected(false);
                 setIsStreaming(false);
 

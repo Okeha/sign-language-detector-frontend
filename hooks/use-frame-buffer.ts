@@ -22,7 +22,7 @@ export function useFrameBuffer(targetFrames: number = 60): UseFrameBufferReturn 
                 }
 
                 if (newFrames.length === targetFrames) {
-                    console.log(`🎬 ${targetFrames} frames collected! Ready to send...`);
+                    // console.log(`🎬 ${targetFrames} frames collected! Ready to send...`);
                 }
 
                 return newFrames;

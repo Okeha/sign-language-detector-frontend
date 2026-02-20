@@ -53,7 +53,7 @@ function CustomModel({
     if (scene) {
       boneMap.current = buildBoneMap(scene);
       skinnedMesh.current = findSkinnedMesh(scene);
-      console.log(`🦴 Built bone map with ${boneMap.current.size} bones`);
+      // console.log(`🦴 Built bone map with ${boneMap.current.size} bones`);
 
       // Restore leg bones (in case cached)
       const LEG_BONES = [
@@ -167,8 +167,8 @@ export default function ModelViewer({
   const containerRef = useRef<HTMLDivElement>(null);
   const [isDark, setIsDark] = useState(false);
 
-  // const customModelPath: string | null = "/models/Static_Me.glb";
-  const customModelPath: string | null = "/models/Dami.glb";
+  const customModelPath: string | null = "/models/Static_Me.glb";
+  // const customModelPath: string | null = "/models/Dami.glb";
 
   useEffect(() => {
     console.log("3D Model Viewer initialized");

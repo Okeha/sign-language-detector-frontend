@@ -25,6 +25,7 @@
 //   sessionId?: string;
 //   backendUrl?: string;
 //   isStreaming?: boolean;
+//   onGlossSequenceReady?: (glosses: string[]) => void;
 // }
 
 // export default function ChatInterfaceEnhanced({
@@ -32,6 +33,7 @@
 //   sessionId = "",
 //   backendUrl = "http://localhost:8000",
 //   isStreaming = false,
+//   onGlossSequenceReady,
 // }: ChatInterfaceEnhancedProps) {
 //   const [messages, setMessages] = useState<Message[]>([
 //     {
@@ -44,7 +46,7 @@
 //   ]);
 //   const [wordChoices, setWordChoices] = useState<string[][]>([]);
 //   const [interpretedSentence, setInterpretedSentence] = useState<string>("");
-//   const [inputText, setInputText] = useState<string>(""); // Manual input
+//   const [inputText, setInputText] = useState<string>("");
 //   const [isConverting, setIsConverting] = useState(false);
 //   const [isWaitingForResponse, setIsWaitingForResponse] = useState(false);
 //   const scrollAreaRef = useRef<HTMLDivElement>(null);
@@ -182,10 +184,9 @@
 //   };
 
 //   const handleSendGlosses = async () => {
-//     // Allow sending if we have text in the input
 //     if (!inputText || inputText === "Interpreting...") return;
-//     if (isWaitingForResponse) return; // Prevent multiple simultaneous requests
-//     if (isConverting) return; // Wait for interpretation to complete
+//     if (isWaitingForResponse) return;
+//     if (isConverting) return;
 
 //     const content = inputText.trim();
 //     if (!content) return;
@@ -216,7 +217,7 @@
 //     setIsWaitingForResponse(true);
 
 //     try {
-//       // Call the /chat endpoint
+//       // Step 1: Get AI response from /chat endpoint
 //       const response = await fetch(`${backendUrl}/chat`, {
 //         method: "POST",
 //         headers: {
@@ -234,17 +235,59 @@
 //       const data = await response.json();
 //       console.log("🤖 AI Response:", data);
 
+//       const aiResponseText = data.response;
+
 //       // Remove loading message and add actual response
 //       setMessages((prev) => {
 //         const filtered = prev.filter((msg) => msg.id !== loadingMessageId);
 //         const aiMessage: Message = {
 //           id: Date.now().toString(),
 //           role: "assistant",
-//           content: data.response,
+//           content: aiResponseText,
 //           timestamp: new Date(data.timestamp || Date.now()),
 //         };
 //         return [...filtered, aiMessage];
 //       });
+
+//       // Step 2: Convert AI response to gloss sequence for 3D animation
+//       try {
+//         console.log("🔄 Converting AI response to gloss sequence...");
+//         console.log("📤 Sending to /convert-sentence-to-gloss:", {
+//           sentence: aiResponseText,
+//         });
+
+//         const glossResponse = await fetch(
+//           `${backendUrl}/convert-sentence-to-gloss`,
+//           {
+//             method: "POST",
+//             headers: {
+//               "Content-Type": "application/json",
+//             },
+//             body: JSON.stringify({
+//               sentence: aiResponseText,
+//             }),
+//           },
+//         );
+
+//         if (glossResponse.ok) {
+//           const glossData = await glossResponse.json();
+//           console.log("✨ Gloss conversion response:", glossData);
+//           console.log("🎬 Gloss sequence for animation:", glossData.response);
+
+//           // Pass gloss array to parent for 3D model animation
+//           if (onGlossSequenceReady && glossData.response) {
+//             onGlossSequenceReady(glossData.response);
+//           }
+//         } else {
+//           console.error(
+//             "❌ Failed to convert to gloss:",
+//             glossResponse.status,
+//             glossResponse.statusText,
+//           );
+//         }
+//       } catch (glossError) {
+//         console.error("❌ Error converting AI response to gloss:", glossError);
+//       }
 //     } catch (error) {
 //       console.error("❌ Error calling /chat endpoint:", error);
 
@@ -457,7 +500,7 @@ export default function ChatInterfaceEnhanced({
       timestamp: new Date(),
     },
   ]);
-  const [wordChoices, setWordChoices] = useState<string[][]>([]);
+  const [wordChoices, setWordChoices] = useState<[string, number][][]>([]);
   const [interpretedSentence, setInterpretedSentence] = useState<string>("");
   const [inputText, setInputText] = useState<string>("");
   const [isConverting, setIsConverting] = useState(false);
@@ -473,17 +516,19 @@ export default function ChatInterfaceEnhanced({
     } else if (interpretedSentence) {
       setInputText(interpretedSentence);
     } else if (wordChoices.length > 0) {
-      setInputText(wordChoices.map((choices) => choices[0] || "").join(" "));
+      setInputText(
+        wordChoices.map((choices) => choices[0]?.[0] || "").join(" "),
+      );
     }
   }, [wordChoices, interpretedSentence, isConverting]);
 
   // Debug: Log wordChoices whenever they change
   useEffect(() => {
-    console.log("🔄 Word choices state updated:", wordChoices);
-    console.log("📊 Current word positions:", wordChoices.length);
+    // console.log("🔄 Word choices state updated:", wordChoices);
+    // console.log("📊 Current word positions:", wordChoices.length);
     console.log(
       "📝 Display value:",
-      wordChoices.map((choices) => choices[0] || "").join(" "),
+      wordChoices.map((choices) => choices[0]?.[0] || "").join(" "),
     );
     if (wordChoices.length > 0) {
       console.log(
@@ -495,22 +540,22 @@ export default function ChatInterfaceEnhanced({
 
   // Add word choices as predictions come in (only when streaming)
   useEffect(() => {
-    console.log(
-      "📥 [CHAT] Received predictions array. Length:",
-      predictions.length,
-      "isStreaming:",
-      isStreaming,
-    );
+    // console.log(
+    //   "📥 [CHAT] Received predictions array. Length:",
+    //   predictions.length,
+    //   "isStreaming:",
+    //   isStreaming,
+    // );
     if (predictions.length > 0) {
       console.log("📥 [CHAT] Full predictions array:", predictions);
       const latestPrediction = predictions[predictions.length - 1];
-      console.log("🔍 [CHAT] Latest prediction:", latestPrediction);
-      console.log("🔍 [CHAT] Latest prediction details:", {
-        gloss: latestPrediction.gloss,
-        confidence: latestPrediction.confidence,
-        top5: latestPrediction.top5,
-        timestamp: latestPrediction.timestamp,
-      });
+      // console.log("🔍 [CHAT] Latest prediction:", latestPrediction);
+      // console.log("🔍 [CHAT] Latest prediction details:", {
+      //   gloss: latestPrediction.gloss,
+      //   confidence: latestPrediction.confidence,
+      //   top5: latestPrediction.top5,
+      //   timestamp: latestPrediction.timestamp,
+      // });
     }
 
     if (predictions.length > 0 && isStreaming) {
@@ -519,17 +564,19 @@ export default function ChatInterfaceEnhanced({
       // Avoid duplicates
       if (latestPrediction.gloss !== lastPredictionRef.current) {
         lastPredictionRef.current = latestPrediction.gloss;
-        console.log("✅ Adding word choices:", latestPrediction.gloss);
+        // console.log("✅ Adding word choices:", latestPrediction.gloss);
 
-        // Build choices array from top5 or just the main gloss
-        const choices: string[] = latestPrediction.top5
-          ? latestPrediction.top5.map(([word]) => word)
-          : [latestPrediction.gloss];
+        // Build choices array from top5 with confidence scores
+        const choices: [string, number][] = latestPrediction.top5
+          ? latestPrediction.top5.map(
+              ([word, score]) => [word, score] as [string, number],
+            )
+          : [[latestPrediction.gloss, latestPrediction.confidence]];
 
         // Add to wordChoices array
         setWordChoices((prev) => {
           const newWordChoices = [...prev, choices];
-          console.log("📝 Updated word choices array:", newWordChoices);
+          // console.log("📝 Updated word choices array:", newWordChoices);
           return newWordChoices;
         });
       }
@@ -617,27 +664,28 @@ export default function ChatInterfaceEnhanced({
     setInterpretedSentence("");
     setInputText("");
 
-    // Add loading message for AI response
-    const loadingMessageId = `loading-${Date.now()}`;
-    const loadingMessage: Message = {
-      id: loadingMessageId,
+    // Add empty assistant message that we'll stream into
+    const assistantMessageId = `assistant-${Date.now()}`;
+    const assistantMessage: Message = {
+      id: assistantMessageId,
       role: "assistant",
-      content: "Thinking...",
+      content: "",
       timestamp: new Date(),
       isLoading: true,
     };
-    setMessages((prev) => [...prev, loadingMessage]);
+    setMessages((prev) => [...prev, assistantMessage]);
     setIsWaitingForResponse(true);
 
     try {
-      // Step 1: Get AI response from /chat endpoint
-      const response = await fetch(`${backendUrl}/chat`, {
+      // Step 1: Stream AI response via SSE
+      const response = await fetch(`${backendUrl}/chat/stream`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
           message: content,
+          session_id: sessionId || undefined,
         }),
       });
 
@@ -645,28 +693,58 @@ export default function ChatInterfaceEnhanced({
         throw new Error(`HTTP error! status: ${response.status}`);
       }
 
-      const data = await response.json();
-      console.log("🤖 AI Response:", data);
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+      let fullResponse = "";
+      let buffer = "";
 
-      const aiResponseText = data.response;
+      if (!reader) throw new Error("No response body");
 
-      // Remove loading message and add actual response
-      setMessages((prev) => {
-        const filtered = prev.filter((msg) => msg.id !== loadingMessageId);
-        const aiMessage: Message = {
-          id: Date.now().toString(),
-          role: "assistant",
-          content: aiResponseText,
-          timestamp: new Date(data.timestamp || Date.now()),
-        };
-        return [...filtered, aiMessage];
-      });
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+
+        // Process complete lines from buffer
+        const lines = buffer.split("\n");
+        // Keep the last (potentially incomplete) line in the buffer
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed.startsWith("data: ")) continue;
+
+          try {
+            const data = JSON.parse(trimmed.slice(6));
+
+            if (data.done) continue;
+            if (data.error) throw new Error(data.error);
+            if (data.token) {
+              fullResponse += data.token;
+
+              // Update message with streamed content
+              setMessages((prev) =>
+                prev.map((msg) =>
+                  msg.id === assistantMessageId
+                    ? { ...msg, content: fullResponse, isLoading: false }
+                    : msg,
+                ),
+              );
+            }
+          } catch (parseError) {
+            // Skip malformed SSE lines
+          }
+        }
+      }
+
+      console.log("🤖 AI Response (streamed):", fullResponse);
 
       // Step 2: Convert AI response to gloss sequence for 3D animation
       try {
         console.log("🔄 Converting AI response to gloss sequence...");
         console.log("📤 Sending to /convert-sentence-to-gloss:", {
-          sentence: aiResponseText,
+          sentence: fullResponse,
         });
 
         const glossResponse = await fetch(
@@ -677,15 +755,15 @@ export default function ChatInterfaceEnhanced({
               "Content-Type": "application/json",
             },
             body: JSON.stringify({
-              sentence: aiResponseText,
+              sentence: fullResponse,
             }),
           },
         );
 
         if (glossResponse.ok) {
           const glossData = await glossResponse.json();
-          console.log("✨ Gloss conversion response:", glossData);
-          console.log("🎬 Gloss sequence for animation:", glossData.response);
+          // console.log("✨ Gloss conversion response:", glossData);
+          // console.log("🎬 Gloss sequence for animation:", glossData.response);
 
           // Pass gloss array to parent for 3D model animation
           if (onGlossSequenceReady && glossData.response) {
@@ -702,24 +780,151 @@ export default function ChatInterfaceEnhanced({
         console.error("❌ Error converting AI response to gloss:", glossError);
       }
     } catch (error) {
-      console.error("❌ Error calling /chat endpoint:", error);
+      console.error("❌ Error in streaming chat:", error);
 
-      // Remove loading message and show error
-      setMessages((prev) => {
-        const filtered = prev.filter((msg) => msg.id !== loadingMessageId);
-        const errorMessage: Message = {
-          id: Date.now().toString(),
-          role: "assistant",
-          content:
-            "Sorry, I encountered an error processing your request. Please try again.",
-          timestamp: new Date(),
-        };
-        return [...filtered, errorMessage];
-      });
+      // Update assistant message with error
+      setMessages((prev) =>
+        prev.map((msg) =>
+          msg.id === assistantMessageId
+            ? {
+                ...msg,
+                content:
+                  "Sorry, I encountered an error processing your request. Please try again.",
+                isLoading: false,
+              }
+            : msg,
+        ),
+      );
     } finally {
       setIsWaitingForResponse(false);
     }
   };
+  // =========LEGACY NON-STREAMING VERSION=========
+  // const handleSendGlosses = async () => {
+  //   if (!inputText || inputText === "Interpreting...") return;
+  //   if (isWaitingForResponse) return;
+  //   if (isConverting) return;
+
+  //   const content = inputText.trim();
+  //   if (!content) return;
+
+  //   const userMessage: Message = {
+  //     id: Date.now().toString(),
+  //     role: "user",
+  //     content: content,
+  //     timestamp: new Date(),
+  //   };
+  //   setMessages((prev) => [...prev, userMessage]);
+
+  //   // Clear state after adding to messages
+  //   setWordChoices([]);
+  //   setInterpretedSentence("");
+  //   setInputText("");
+
+  //   // Add loading message for AI response
+  //   const loadingMessageId = `loading-${Date.now()}`;
+  //   const loadingMessage: Message = {
+  //     id: loadingMessageId,
+  //     role: "assistant",
+  //     content: "Thinking...",
+  //     timestamp: new Date(),
+  //     isLoading: true,
+  //   };
+  //   setMessages((prev) => [...prev, loadingMessage]);
+  //   setIsWaitingForResponse(true);
+
+  //   try {
+  //     // Step 1: Get AI response from /chat endpoint
+  //     const response = await fetch(`${backendUrl}/chat`, {
+  //       method: "POST",
+  //       headers: {
+  //         "Content-Type": "application/json",
+  //       },
+  //       body: JSON.stringify({
+  //         message: content,
+  //         session_id: sessionId,
+  //       }),
+  //     });
+
+  //     if (!response.ok) {
+  //       throw new Error(`HTTP error! status: ${response.status}`);
+  //     }
+
+  //     const data = await response.json();
+  //     console.log("🤖 AI Response:", data);
+
+  //     const aiResponseText = data.response;
+
+  //     // Remove loading message and add actual response
+  //     setMessages((prev) => {
+  //       const filtered = prev.filter((msg) => msg.id !== loadingMessageId);
+  //       const aiMessage: Message = {
+  //         id: Date.now().toString(),
+  //         role: "assistant",
+  //         content: aiResponseText,
+  //         timestamp: new Date(data.timestamp || Date.now()),
+  //       };
+  //       return [...filtered, aiMessage];
+  //     });
+
+  //     // Step 2: Convert AI response to gloss sequence for 3D animation
+  //     try {
+  //       console.log("🔄 Converting AI response to gloss sequence...");
+  //       console.log("📤 Sending to /convert-sentence-to-gloss:", {
+  //         sentence: aiResponseText,
+  //       });
+
+  //       const glossResponse = await fetch(
+  //         `${backendUrl}/convert-sentence-to-gloss`,
+  //         {
+  //           method: "POST",
+  //           headers: {
+  //             "Content-Type": "application/json",
+  //           },
+  //           body: JSON.stringify({
+  //             sentence: aiResponseText,
+  //           }),
+  //         },
+  //       );
+
+  //       if (glossResponse.ok) {
+  //         const glossData = await glossResponse.json();
+  //         console.log("✨ Gloss conversion response:", glossData);
+  //         console.log("🎬 Gloss sequence for animation:", glossData.response);
+
+  //         // Pass gloss array to parent for 3D model animation
+  //         if (onGlossSequenceReady && glossData.response) {
+  //           onGlossSequenceReady(glossData.response);
+  //         }
+  //       } else {
+  //         console.error(
+  //           "❌ Failed to convert to gloss:",
+  //           glossResponse.status,
+  //           glossResponse.statusText,
+  //         );
+  //       }
+  //     } catch (glossError) {
+  //       console.error("❌ Error converting AI response to gloss:", glossError);
+  //     }
+  //   } catch (error) {
+  //     console.error("❌ Error calling /chat endpoint:", error);
+
+  //     // Remove loading message and show error
+  //     setMessages((prev) => {
+  //       const filtered = prev.filter((msg) => msg.id !== loadingMessageId);
+  //       const errorMessage: Message = {
+  //         id: Date.now().toString(),
+  //         role: "assistant",
+  //         content:
+  //           "Sorry, I encountered an error processing your request. Please try again.",
+  //         timestamp: new Date(),
+  //       };
+  //       return [...filtered, errorMessage];
+  //     });
+  //   } finally {
+  //     setIsWaitingForResponse(false);
+  //   }
+  // };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {

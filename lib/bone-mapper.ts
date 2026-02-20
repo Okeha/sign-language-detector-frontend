@@ -49,9 +49,9 @@ if (typeof window !== "undefined") {
     CONFIG.WRIST_SMOOTHING = val;
     console.log(`WRIST_SMOOTHING set to ${val}`);
   };
-  console.log(
-    "🎮 Config: setArmOffset(n) | setArmXOffset(n) | setFingerCurl(n) | setFingerSmoothing(n) | setArmSmoothing(n) | setWristSmoothing(n)",
-  );
+  // console.log(
+  //   "🎮 Config: setArmOffset(n) | setArmXOffset(n) | setFingerCurl(n) | setFingerSmoothing(n) | setArmSmoothing(n) | setWristSmoothing(n)",
+  // );
 }
 
 // ============================================
@@ -702,7 +702,7 @@ export function buildBoneMap(scene: THREE.Object3D): Map<string, THREE.Bone> {
     }
   });
 
-  console.log(`🦴 Bone map: ${boneMap.size / 2} bones`);
+  // console.log(`🦴 Bone map: ${boneMap.size / 2} bones`);
 
   return boneMap;
 }
