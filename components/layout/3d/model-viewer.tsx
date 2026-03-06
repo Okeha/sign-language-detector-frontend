@@ -17,6 +17,9 @@ import {
   applyHandMotion,
   applyFaceMotion,
   resetSmoothingCache,
+  captureRestPose,
+  blendToRestPose,
+  resetToRestPose,
 } from "@/lib/bone-mapper";
 
 // ============================================
@@ -48,10 +51,15 @@ function CustomModel({
   const boneMap = useRef<Map<string, THREE.Bone> | null>(null);
   const skinnedMesh = useRef<THREE.SkinnedMesh | null>(null);
 
+  // ✅ NEW: Track whether we're blending back to A-pose
+  const isResettingRef = useRef(false);
+  const wasPlayingRef = useRef(false);
+
   // Build bone map on scene load
   useEffect(() => {
     if (scene) {
       boneMap.current = buildBoneMap(scene);
+      captureRestPose(boneMap.current);
       skinnedMesh.current = findSkinnedMesh(scene);
       // console.log(`🦴 Built bone map with ${boneMap.current.size} bones`);
 
@@ -88,6 +96,9 @@ function CustomModel({
   useEffect(() => {
     // Reset smoothing cache when switching glosses to avoid
     // carry-over quaternions from previous animation
+
+    // ✅ NEW: Cancel any in-progress reset when new animation starts
+    isResettingRef.current = false;
     resetSmoothingCache();
 
     if (glossSequence && glossSequence.length > 0) {
@@ -109,13 +120,51 @@ function CustomModel({
     }
   }, [actions]);
 
-  // ✅ Single animation loop — delta comes from Three.js clock
+  // // ✅ Single animation loop — delta comes from Three.js clock
+  // useFrame((_state, delta) => {
+  //   if (!playbackState.isPlaying || !boneMap.current) return;
+
+  //   // Clamp delta to avoid huge jumps when tab is inactive
+  //   const clampedDelta = Math.min(delta, 0.1);
+
+  //   const frame = getInterpolatedFrame(clampedDelta);
+
+  //   if (frame) {
+  //     if (frame.body) {
+  //       applyBodyMotion(boneMap.current, frame.body);
+  //     }
+  //     if (frame.hands) {
+  //       applyHandMotion(boneMap.current, frame.hands);
+  //     }
+  //     if (frame.face && skinnedMesh.current) {
+  //       applyFaceMotion(skinnedMesh.current, frame.face);
+  //     }
+  //   }
+  // });
+  // ✅ Single animation loop
   useFrame((_state, delta) => {
-    if (!playbackState.isPlaying || !boneMap.current) return;
+    if (!boneMap.current) return;
 
-    // Clamp delta to avoid huge jumps when tab is inactive
+    // ✅ NEW: Detect when playback just stopped → start blending back
+    if (wasPlayingRef.current && !playbackState.isPlaying) {
+      console.log("🔄 Playback ended — blending back to A-pose");
+      isResettingRef.current = true;
+    }
+    wasPlayingRef.current = playbackState.isPlaying;
+
+    // ✅ NEW: If resetting, blend toward rest pose each frame
+    if (isResettingRef.current) {
+      const done = blendToRestPose(boneMap.current, 0.08);
+      if (done) {
+        isResettingRef.current = false;
+      }
+      return; // Don't apply motion data while resetting
+    }
+
+    // Normal playback
+    if (!playbackState.isPlaying) return;
+
     const clampedDelta = Math.min(delta, 0.1);
-
     const frame = getInterpolatedFrame(clampedDelta);
 
     if (frame) {
