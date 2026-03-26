@@ -73,8 +73,8 @@ export default function CameraStream({
     sendFrames: (frames: string[]) => boolean;
   };
 
-  const frameIntervalRef = useRef<NodeJS.Timeout>();
-  const sendIntervalRef = useRef<NodeJS.Timeout>();
+  const frameIntervalRef = useRef<NodeJS.Timeout>(undefined);
+  const sendIntervalRef = useRef<NodeJS.Timeout>(undefined);
   const [isMounted, setIsMounted] = useState(false);
 
   // Track client-side mount to prevent hydration mismatch

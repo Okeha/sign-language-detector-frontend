@@ -12,6 +12,7 @@ import * as THREE from "three";
 import { useMotionPlayer } from "@/hooks/use-motion-player";
 import {
   buildBoneMap,
+  findAllMorphMeshes,
   findSkinnedMesh,
   applyBodyMotion,
   applyHandMotion,
@@ -49,7 +50,7 @@ function CustomModel({
   } = useMotionPlayer();
 
   const boneMap = useRef<Map<string, THREE.Bone> | null>(null);
-  const skinnedMesh = useRef<THREE.SkinnedMesh | null>(null);
+  const faceMeshes = useRef<THREE.SkinnedMesh[]>([]);
 
   // ✅ NEW: Track whether we're blending back to A-pose
   const isResettingRef = useRef(false);
@@ -60,8 +61,8 @@ function CustomModel({
     if (scene) {
       boneMap.current = buildBoneMap(scene);
       captureRestPose(boneMap.current);
-      skinnedMesh.current = findSkinnedMesh(scene);
-      // console.log(`🦴 Built bone map with ${boneMap.current.size} bones`);
+      faceMeshes.current = findAllMorphMeshes(scene);
+      console.log(`🦴 Built bone map with ${boneMap.current.size} bones`);
 
       // Restore leg bones (in case cached)
       const LEG_BONES = [
@@ -88,7 +89,7 @@ function CustomModel({
 
     return () => {
       boneMap.current = null;
-      skinnedMesh.current = null;
+      faceMeshes.current = [];
     };
   }, [scene]);
 
@@ -174,8 +175,8 @@ function CustomModel({
       if (frame.hands) {
         applyHandMotion(boneMap.current, frame.hands);
       }
-      if (frame.face && skinnedMesh.current) {
-        applyFaceMotion(skinnedMesh.current, frame.face);
+      if (frame.face && faceMeshes.current.length > 0) {
+        applyFaceMotion(faceMeshes.current, frame.face);
       }
     }
   });

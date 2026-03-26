@@ -27,7 +27,7 @@ export interface WebSocketMessage {
 
 // Hook Return Types
 export interface UseWebcamReturn {
-    videoRef: React.RefObject<HTMLVideoElement>;
+    videoRef: React.RefObject<HTMLVideoElement | null>;
     stream: MediaStream | null;
     isActive: boolean;
     error: string | null;

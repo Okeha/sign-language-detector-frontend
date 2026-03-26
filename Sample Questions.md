@@ -1,6 +1,6 @@
 1. Can you help me find good food?
 2. What time should I sleep?
-3. Tell me one story.
+3. Make a short story.
 4. Where can I find one good doctor?
 5. What should I eat today?
 6. Will tomorrow feel cold or hot?

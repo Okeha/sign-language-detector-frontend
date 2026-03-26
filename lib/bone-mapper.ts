@@ -1,8 +1,4 @@
-
-// ==================================================
-// BEST SO FAR
-// ==================================================
-import * as THREE from "three";
+﻿import * as THREE from "three";
 import { FaceBlendshapes } from "@/types/motion";
 
 // ============================================
@@ -16,24 +12,20 @@ const CONFIG = {
   ARM_Z_OFFSET: 0.35,
   ARM_X_OFFSET: -0.035,
   ARM_Y_OFFSET_LEFT: 0.1,
-  ARM_Y_OFFSET_RIGHT: 0.0,
+  ARM_Y_OFFSET_RIGHT: 0,
 
-  // Finger settings
-  FINGER_CURL_MULTIPLIER: 1.0,
-  FINGER_SPREAD_MULTIPLIER: 0.5,
-
-  // Smoothing
+  // Smoothing factors (0 = instant, 1 = frozen)
   ARM_SMOOTHING: 0.3,
-  WRIST_SMOOTHING: 0.4,
-  FINGER_SMOOTHING: 0.5,
+  WRIST_SMOOTHING: 0.3,
+  FINGER_SMOOTHING: 0.35,
+  LANDMARK_SMOOTHING: 0.3,
 };
 
-// Debug helpers
+// Runtime config tweaks
 if (typeof window !== "undefined") {
   (window as any).__MOTION_CONFIG = CONFIG;
   (window as any).setArmOffset = (val: number) => { CONFIG.ARM_Z_OFFSET = val; };
   (window as any).setArmXOffset = (val: number) => { CONFIG.ARM_X_OFFSET = val; };
-  (window as any).setFingerCurl = (val: number) => { CONFIG.FINGER_CURL_MULTIPLIER = val; };
   (window as any).setFingerSmoothing = (val: number) => { CONFIG.FINGER_SMOOTHING = val; };
 }
 
@@ -46,14 +38,6 @@ const HL = {
   MIDDLE_MCP: 9, MIDDLE_PIP: 10, MIDDLE_DIP: 11, MIDDLE_TIP: 12,
   RING_MCP: 13, RING_PIP: 14, RING_DIP: 15, RING_TIP: 16,
   PINKY_MCP: 17, PINKY_PIP: 18, PINKY_DIP: 19, PINKY_TIP: 20,
-};
-
-const FINGER_CHAINS = {
-  thumb: [HL.WRIST, HL.THUMB_CMC, HL.THUMB_MCP, HL.THUMB_IP, HL.THUMB_TIP],
-  index: [HL.WRIST, HL.INDEX_MCP, HL.INDEX_PIP, HL.INDEX_DIP, HL.INDEX_TIP],
-  middle: [HL.WRIST, HL.MIDDLE_MCP, HL.MIDDLE_PIP, HL.MIDDLE_DIP, HL.MIDDLE_TIP],
-  ring: [HL.WRIST, HL.RING_MCP, HL.RING_PIP, HL.RING_DIP, HL.RING_TIP],
-  pinky: [HL.WRIST, HL.PINKY_MCP, HL.PINKY_PIP, HL.PINKY_DIP, HL.PINKY_TIP],
 };
 
 const FINGER_BONES = {
@@ -73,6 +57,15 @@ const FINGER_BONES = {
   },
 };
 
+// Landmark pairs for direction-based finger IK (3 active bones per finger)
+const FINGER_SEGMENTS: Record<string, [number, number][]> = {
+  thumb: [[HL.THUMB_CMC, HL.THUMB_MCP], [HL.THUMB_MCP, HL.THUMB_IP], [HL.THUMB_IP, HL.THUMB_TIP]],
+  index: [[HL.INDEX_MCP, HL.INDEX_PIP], [HL.INDEX_PIP, HL.INDEX_DIP], [HL.INDEX_DIP, HL.INDEX_TIP]],
+  middle: [[HL.MIDDLE_MCP, HL.MIDDLE_PIP], [HL.MIDDLE_PIP, HL.MIDDLE_DIP], [HL.MIDDLE_DIP, HL.MIDDLE_TIP]],
+  ring: [[HL.RING_MCP, HL.RING_PIP], [HL.RING_PIP, HL.RING_DIP], [HL.RING_DIP, HL.RING_TIP]],
+  pinky: [[HL.PINKY_MCP, HL.PINKY_PIP], [HL.PINKY_PIP, HL.PINKY_DIP], [HL.PINKY_DIP, HL.PINKY_TIP]],
+};
+
 const WRIST_BONES = {
   left: "LeftHand",
   right: "RightHand",
@@ -82,29 +75,68 @@ const WRIST_BONES = {
 // REST POSE STORAGE
 // ============================================
 const restPoseQuaternions: Map<string, THREE.Quaternion> = new Map();
+const restWorldQuaternions: Map<string, THREE.Quaternion> = new Map();
 let restPoseCaptured = false;
 
 export function captureRestPose(boneMap: Map<string, THREE.Bone>): void {
   boneMap.forEach((bone) => bone.updateWorldMatrix(true, false));
-  boneMap.forEach((bone, name) => restPoseQuaternions.set(name, bone.quaternion.clone()));
+  boneMap.forEach((bone, name) => {
+    const localQuat = bone.quaternion.clone();
+    restPoseQuaternions.set(name, localQuat);
+    bone.userData.__restQuat = localQuat.clone();
+
+    // Also store world-space quaternion (needed for twist-free finger IK)
+    const worldQuat = new THREE.Quaternion();
+    bone.getWorldQuaternion(worldQuat);
+    restWorldQuaternions.set(name, worldQuat);
+    bone.userData.__restWorldQuat = worldQuat.clone();
+  });
   restPoseCaptured = true;
 }
 
+function getRestQuat(bone: THREE.Bone, boneName: string): THREE.Quaternion | undefined {
+  return restPoseQuaternions.get(boneName) || bone.userData?.__restQuat;
+}
+
+function getRestWorldQuat(bone: THREE.Bone, boneName: string): THREE.Quaternion | undefined {
+  return restWorldQuaternions.get(boneName) || bone.userData?.__restWorldQuat;
+}
+
+function recoverRestPoses(boneMap: Map<string, THREE.Bone>): void {
+  if (restPoseCaptured) return;
+  let recovered = 0;
+  boneMap.forEach((bone, name) => {
+    if (bone.userData?.__restQuat && !restPoseQuaternions.has(name)) {
+      restPoseQuaternions.set(name, (bone.userData.__restQuat as THREE.Quaternion).clone());
+      if (bone.userData.__restWorldQuat) {
+        restWorldQuaternions.set(name, (bone.userData.__restWorldQuat as THREE.Quaternion).clone());
+      }
+      recovered++;
+    }
+  });
+  if (recovered > 0) {
+    restPoseCaptured = true;
+    console.log(`[bone-mapper] Recovered ${recovered} rest poses from bone userData`);
+  }
+}
+
 export function resetToRestPose(boneMap: Map<string, THREE.Bone>): void {
+  recoverRestPoses(boneMap);
   if (!restPoseCaptured) return;
   boneMap.forEach((bone, name) => {
-    const restQuat = restPoseQuaternions.get(name);
+    const restQuat = getRestQuat(bone, name);
     if (restQuat) bone.quaternion.copy(restQuat);
   });
   previousQuaternions.clear();
 }
 
 export function blendToRestPose(boneMap: Map<string, THREE.Bone>, blendFactor: number = 0.1, threshold: number = 0.001): boolean {
+  recoverRestPoses(boneMap);
   if (!restPoseCaptured) return true;
   let allDone = true;
 
   boneMap.forEach((bone, name) => {
-    const restQuat = restPoseQuaternions.get(name);
+    const restQuat = getRestQuat(bone, name);
     if (!restQuat) return;
 
     if (Math.abs(bone.quaternion.dot(restQuat)) >= 1 - threshold) {
@@ -130,6 +162,7 @@ export function isRestPoseCaptured(): boolean {
 // SMOOTHING STATE
 // ============================================
 const previousQuaternions: Map<string, THREE.Quaternion> = new Map();
+const previousLandmarks: Map<string, Array<{ x: number; y: number; z: number }>> = new Map();
 
 function ensureShortestPath(prev: THREE.Quaternion, target: THREE.Quaternion): void {
   if (prev.dot(target) < 0) target.set(-target.x, -target.y, -target.z, -target.w);
@@ -146,18 +179,34 @@ function getSmoothedQuaternion(boneName: string, targetQuat: THREE.Quaternion, s
   const prevQuat = previousQuaternions.get(boneName);
   if (prevQuat) {
     ensureShortestPath(prevQuat, targetQuat);
-
-    // MICRO-JITTER DEADZONE: Stop visual buzzing when angles are extremely close
-    if (Math.abs(prevQuat.dot(targetQuat)) > 0.9995) {
-      return prevQuat.clone();
-    }
-
     result.slerpQuaternions(prevQuat, targetQuat, 1 - smoothing);
   } else {
     result.copy(targetQuat);
   }
 
   previousQuaternions.set(boneName, result.clone());
+  return result;
+}
+
+function getSmoothedLandmarks(
+  landmarks: Array<{ x: number; y: number; z: number }>,
+  key: string,
+): Array<{ x: number; y: number; z: number }> {
+  const prev = previousLandmarks.get(key);
+  const alpha = 1 - CONFIG.LANDMARK_SMOOTHING;
+
+  if (!prev || prev.length !== landmarks.length) {
+    previousLandmarks.set(key, landmarks.map(lm => ({ x: lm.x, y: lm.y, z: lm.z })));
+    return landmarks;
+  }
+
+  const result = landmarks.map((lm, i) => ({
+    x: prev[i].x + alpha * (lm.x - prev[i].x),
+    y: prev[i].y + alpha * (lm.y - prev[i].y),
+    z: prev[i].z + alpha * (lm.z - prev[i].z),
+  }));
+
+  previousLandmarks.set(key, result.map(lm => ({ x: lm.x, y: lm.y, z: lm.z })));
   return result;
 }
 
@@ -247,2013 +296,317 @@ export function applyBodyMotion(boneMap: Map<string, THREE.Bone>, bodyData: any)
 // WRIST ORIENTATION
 // ============================================
 
-function applyWristOrientation(boneMap: Map<string, THREE.Bone>, handData: any, side: "left" | "right"): void {
+function applyWristFromLandmarks(
+  boneMap: Map<string, THREE.Bone>,
+  landmarks: Array<{ x: number; y: number; z: number }>,
+  side: "left" | "right",
+): void {
   const wristBoneName = WRIST_BONES[side];
   const wristBone = getBone(boneMap, wristBoneName);
-  if (!wristBone || !handData?.wrist_quaternion) return;
+  if (!wristBone) return;
 
-  const wq = handData.wrist_quaternion;
-  const targetQuat = new THREE.Quaternion(wq.x, wq.y, wq.z, wq.w);
+  // Build wrist orientation directly from the same smoothed landmarks that
+  // drive the finger IK.  This guarantees the wrist frame and finger target
+  // directions are in the same coordinate convention for both hands.
 
+  const wristLm = vec3FromLandmarks(landmarks, HL.WRIST);
+  const indexMcp = vec3FromLandmarks(landmarks, HL.INDEX_MCP);
+  const middleMcp = vec3FromLandmarks(landmarks, HL.MIDDLE_MCP);
+  const ringMcp = vec3FromLandmarks(landmarks, HL.RING_MCP);
+  const pinkyMcp = vec3FromLandmarks(landmarks, HL.PINKY_MCP);
+
+  // Y-axis: forward (wrist → palm center) — same convention as arm IK bone direction
+  const palmCenter = new THREE.Vector3()
+    .addVectors(indexMcp, middleMcp).add(ringMcp).add(pinkyMcp).multiplyScalar(0.25);
+  const yAxis = new THREE.Vector3().subVectors(palmCenter, wristLm);
+  if (yAxis.lengthSq() < 1e-10) return;
+  yAxis.normalize();
+
+  // Raw palm normal: cross(index-wrist, pinky-wrist).
+  // For the left hand the cross product points the opposite way, so negate it
+  // to keep the wrist orientation consistent with the rig's mirrored bones.
+  const vecToIndex = new THREE.Vector3().subVectors(indexMcp, wristLm);
+  const vecToPinky = new THREE.Vector3().subVectors(pinkyMcp, wristLm);
+  const rawNormal = new THREE.Vector3().crossVectors(vecToIndex, vecToPinky);
+  if (rawNormal.lengthSq() < 1e-10) return;
+  if (side === "left") rawNormal.negate();
+
+  // Z-axis: palm normal, orthogonalized against forward
+  const zAxis = rawNormal.normalize()
+    .addScaledVector(yAxis, -rawNormal.dot(yAxis))
+    .normalize();
+
+  // X-axis: lateral, completes right-handed basis
+  const xAxis = new THREE.Vector3().crossVectors(yAxis, zAxis).normalize();
+
+  // Rotation matrix: [xAxis | yAxis | zAxis] as columns
+  const m = new THREE.Matrix4().makeBasis(xAxis, yAxis, zAxis);
+  const targetQuat = new THREE.Quaternion().setFromRotationMatrix(m);
+
+  // Convert to parent-local space (same approach as arm IK)
   const parentWorldQuat = new THREE.Quaternion();
   if (wristBone.parent) wristBone.parent.getWorldQuaternion(parentWorldQuat);
 
-  const restPoseOffset = new THREE.Quaternion();
-  const localQuat = parentWorldQuat.clone().invert().multiply(targetQuat).multiply(restPoseOffset);
+  const localQuat = parentWorldQuat.clone().invert().multiply(targetQuat);
   const smoothedQuat = getSmoothedQuaternion(wristBoneName, localQuat, CONFIG.WRIST_SMOOTHING);
-
   wristBone.quaternion.copy(smoothedQuat);
 }
 
-
-
 // ============================================
-// NEW FINGER PROCESSING (RESTORED CUSTOM MATH)
+// FINGER PROCESSING (v6 -- Parent-local Delta IK)
+//
+// v4/v5 mixed rest-pose world directions with animated parent
+// world quaternions, which introduces large spurious rotations
+// whenever the arm/wrist has moved away from the T-pose.
+//
+// v6 works entirely in parent-local space:
+// 1. restLocalDir = restLocalQ * +Y  (bone direction in parent-local space at rest)
+// 2. targetDir    = landmark direction in "world" (MediaPipe) space
+// 3. targetLocalDir = parentWorldQ_current^-1 * targetDir  (in parent-local space)
+// 4. deltaQ       = minimal rotation from restLocalDir to targetLocalDir
+// 5. localQ       = deltaQ * restLocalQ  (preserves rig twist, only changes swing)
+//
+// Both directions are in the SAME coordinate frame (parent-local),
+// so the delta is small and twist-free.
 // ============================================
 
-function calculateFingerRotations(
+let fingerBoneWarningLogged = false;
+let fingerDebugLogged = false;
+
+function applyFingerIK(
+  boneMap: Map<string, THREE.Bone>,
   landmarks: Array<{ x: number; y: number; z: number }>,
-  fingerName: keyof typeof FINGER_CHAINS,
+  fingerName: string,
   side: "left" | "right",
-): THREE.Quaternion[] {
-  const chain = FINGER_CHAINS[fingerName];
-  const rotations: THREE.Quaternion[] = [];
+): void {
+  const segments = FINGER_SEGMENTS[fingerName];
+  const boneNames = FINGER_BONES[side][fingerName as keyof typeof FINGER_BONES["left"]];
+  if (!segments || !boneNames) return;
 
-  const isThumb = fingerName === "thumb";
-  const isLeft = side === "left";
+  const upVec = new THREE.Vector3(0, 1, 0);
 
-  const positions = chain.map((idx) => vec3FromLandmarks(landmarks, idx));
-
-  for (let i = 0; i < 4; i++) {
-    const p0 = positions[Math.max(0, i)];
-    const p1 = positions[i + 1];
-    const p2 = positions[Math.min(i + 2, 4)];
-
-    const v1 = new THREE.Vector3().subVectors(p0, p1).normalize();
-    const v2 = new THREE.Vector3().subVectors(p2, p1).normalize();
-
-    const dot = THREE.MathUtils.clamp(v1.dot(v2), -1, 1);
-    const bendAngle = Math.acos(dot);
-
-    let curlAmount = (Math.PI - bendAngle) * CONFIG.FINGER_CURL_MULTIPLIER;
-
-    // CURL DEADZONE: Stops fully extended fingers from buzzing
-    if (curlAmount < 0.08) {
-      curlAmount = 0;
-    }
-
-    let maxCurl = Math.PI * 0.5;
-    if (i === 0) maxCurl = Math.PI * 0.4;
-    if (i === 3) maxCurl = Math.PI * 0.35;
-
-    curlAmount = THREE.MathUtils.clamp(curlAmount, 0, maxCurl);
-
-    let rotation: THREE.Quaternion;
-
-    if (isThumb) {
-      // REVERTED: Back to your original correct axes!
-      const curlAxis = new THREE.Vector3(1, 0, 0);
-      const spreadAxis = new THREE.Vector3(0, 0, 1);
-
-      const spreadAngle = calculateThumbSpread(landmarks, i, isLeft);
-
-      const curlQuat = new THREE.Quaternion().setFromAxisAngle(curlAxis, curlAmount);
-      const spreadQuat = new THREE.Quaternion().setFromAxisAngle(spreadAxis, spreadAngle);
-
-      rotation = spreadQuat.multiply(curlQuat);
-    } else {
-      // REVERTED: Back to your original correct axes!
-      const curlAxis = new THREE.Vector3(1, 0, 0);
-      rotation = new THREE.Quaternion().setFromAxisAngle(curlAxis, curlAmount);
-
-      if (i === 0) {
-        const spreadAngle = calculateFingerSpread(landmarks, fingerName, isLeft);
-        const spreadAxis = new THREE.Vector3(0, isLeft ? -1 : 1, 0);
-        const spreadQuat = new THREE.Quaternion().setFromAxisAngle(spreadAxis, spreadAngle);
-
-        rotation.premultiply(spreadQuat);
-      }
-    }
-
-    rotations.push(rotation);
-  }
-
-  return rotations;
-}
-
-function calculateThumbSpread(
-  landmarks: Array<{ x: number; y: number; z: number }>,
-  jointIndex: number,
-  isLeft: boolean,
-): number {
-  const thumbTip = vec3FromLandmarks(landmarks, HL.THUMB_TIP);
-  const indexMcp = vec3FromLandmarks(landmarks, HL.INDEX_MCP);
-  const wrist = vec3FromLandmarks(landmarks, HL.WRIST);
-
-  const thumbDir = new THREE.Vector3().subVectors(thumbTip, wrist).normalize();
-  const indexDir = new THREE.Vector3().subVectors(indexMcp, wrist).normalize();
-
-  // FIX: Rotation-invariant math. Calculates absolute angle regardless of camera view.
-  const dot = THREE.MathUtils.clamp(indexDir.dot(thumbDir), -1, 1);
-  let spreadAngle = Math.acos(dot);
-
-  spreadAngle *= CONFIG.FINGER_SPREAD_MULTIPLIER;
-  spreadAngle *= 1 - jointIndex * 0.3;
-
-  return isLeft ? -spreadAngle : spreadAngle;
-}
-
-function calculateFingerSpread(
-  landmarks: Array<{ x: number; y: number; z: number }>,
-  fingerName: keyof typeof FINGER_CHAINS,
-  isLeft: boolean,
-): number {
-  const fingerMcpIndices: Record<string, number> = {
-    index: HL.INDEX_MCP,
-    middle: HL.MIDDLE_MCP,
-    ring: HL.RING_MCP,
-    pinky: HL.PINKY_MCP,
-  };
-
-  const mcpIdx = fingerMcpIndices[fingerName];
-  if (!mcpIdx) return 0;
-
-  const wrist = vec3FromLandmarks(landmarks, HL.WRIST);
-  const middleMcp = vec3FromLandmarks(landmarks, HL.MIDDLE_MCP);
-  const fingerMcp = vec3FromLandmarks(landmarks, mcpIdx);
-
-  const refDir = new THREE.Vector3().subVectors(middleMcp, wrist).normalize();
-  const fingerDir = new THREE.Vector3().subVectors(fingerMcp, wrist).normalize();
-
-  // FIX: Rotation-invariant math. Calculates absolute angle.
-  const dot = THREE.MathUtils.clamp(refDir.dot(fingerDir), -1, 1);
-  let spreadAngle = Math.acos(dot);
-
-  // Hardcode the anatomical direction so it never flips randomly
-  if (fingerName === "index") {
-    spreadAngle = -spreadAngle; // Index spreads inward
-  } else if (fingerName === "ring" || fingerName === "pinky") {
-    spreadAngle = spreadAngle;  // Ring/Pinky spread outward
-  } else {
-    spreadAngle = 0; // Middle finger is the anchor
-  }
-
-  // Preserve symmetry for the right hand
-  if (!isLeft) {
-    spreadAngle = -spreadAngle;
-  }
-
-  spreadAngle *= CONFIG.FINGER_SPREAD_MULTIPLIER;
-
-  return spreadAngle;
-}
-
-// ============================================
-// OLD FINGER PROCESSING (RESTORED CUSTOM MATH)
-// ============================================
-
-// function calculateFingerRotations(
-//   landmarks: Array<{ x: number; y: number; z: number }>,
-//   fingerName: keyof typeof FINGER_CHAINS,
-//   side: "left" | "right",
-// ): THREE.Quaternion[] {
-//   const chain = FINGER_CHAINS[fingerName];
-//   const rotations: THREE.Quaternion[] = [];
-//   const isThumb = fingerName === "thumb";
-//   const isLeft = side === "left";
-//   const positions = chain.map((idx) => vec3FromLandmarks(landmarks, idx));
-
-//   for (let i = 0; i < 4; i++) {
-//     const p0 = positions[Math.max(0, i)];
-//     const p1 = positions[i + 1];
-//     const p2 = positions[Math.min(i + 2, 4)];
-
-//     const v1 = new THREE.Vector3().subVectors(p0, p1).normalize();
-//     const v2 = new THREE.Vector3().subVectors(p2, p1).normalize();
-
-//     const dot = THREE.MathUtils.clamp(v1.dot(v2), -1, 1);
-//     const bendAngle = Math.acos(dot);
-//     let curlAmount = (Math.PI - bendAngle) * CONFIG.FINGER_CURL_MULTIPLIER;
-
-//     // CURL DEADZONE: Stops fully extended fingers from vibrating
-//     if (curlAmount < 0.08) {
-//       curlAmount = 0;
-//     }
-
-//     let maxCurl = Math.PI * 0.5;
-//     if (i === 0) maxCurl = Math.PI * 0.4;
-//     if (i === 3) maxCurl = Math.PI * 0.35;
-//     curlAmount = THREE.MathUtils.clamp(curlAmount, 0, maxCurl);
-
-//     let rotation: THREE.Quaternion;
-
-//     if (isThumb) {
-//       const curlAxis = new THREE.Vector3(1, 0, 0); // RPM local X axis curl
-//       const spreadAxis = new THREE.Vector3(0, 0, 1);
-//       const spreadAngle = calculateThumbSpread(landmarks, i, isLeft);
-
-//       const curlQuat = new THREE.Quaternion().setFromAxisAngle(curlAxis, curlAmount);
-//       const spreadQuat = new THREE.Quaternion().setFromAxisAngle(spreadAxis, spreadAngle);
-//       rotation = spreadQuat.multiply(curlQuat);
-//     } else {
-//       const curlAxis = new THREE.Vector3(1, 0, 0); // RPM local X axis curl
-//       rotation = new THREE.Quaternion().setFromAxisAngle(curlAxis, curlAmount);
-
-//       if (i === 0) {
-//         const spreadAngle = calculateFingerSpread(landmarks, fingerName, isLeft);
-//         const spreadAxis = new THREE.Vector3(0, isLeft ? -1 : 1, 0);
-//         const spreadQuat = new THREE.Quaternion().setFromAxisAngle(spreadAxis, spreadAngle);
-//         rotation.premultiply(spreadQuat);
-//       }
-//     }
-//     rotations.push(rotation);
-//   }
-//   return rotations;
-// }
-
-// function calculateThumbSpread(landmarks: Array<{ x: number; y: number; z: number }>, jointIndex: number, isLeft: boolean): number {
-//   const thumbTip = vec3FromLandmarks(landmarks, HL.THUMB_TIP);
-//   const indexMcp = vec3FromLandmarks(landmarks, HL.INDEX_MCP);
-//   const wrist = vec3FromLandmarks(landmarks, HL.WRIST);
-
-//   const thumbDir = new THREE.Vector3().subVectors(thumbTip, wrist).normalize();
-//   const indexDir = new THREE.Vector3().subVectors(indexMcp, wrist).normalize();
-//   const cross = new THREE.Vector3().crossVectors(indexDir, thumbDir);
-
-//   let spreadAngle = Math.asin(THREE.MathUtils.clamp(cross.y, -1, 1));
-//   spreadAngle *= CONFIG.FINGER_SPREAD_MULTIPLIER;
-//   spreadAngle *= 1 - jointIndex * 0.3;
-
-//   return isLeft ? -spreadAngle : spreadAngle;
-// }
-
-// function calculateFingerSpread(landmarks: Array<{ x: number; y: number; z: number }>, fingerName: keyof typeof FINGER_CHAINS, isLeft: boolean): number {
-//   const fingerMcpIndices: Record<string, number> = {
-//     index: HL.INDEX_MCP, middle: HL.MIDDLE_MCP, ring: HL.RING_MCP, pinky: HL.PINKY_MCP,
-//   };
-
-//   const mcpIdx = fingerMcpIndices[fingerName];
-//   if (!mcpIdx) return 0;
-
-//   const wrist = vec3FromLandmarks(landmarks, HL.WRIST);
-//   const middleMcp = vec3FromLandmarks(landmarks, HL.MIDDLE_MCP);
-//   const fingerMcp = vec3FromLandmarks(landmarks, mcpIdx);
-
-//   const refDir = new THREE.Vector3().subVectors(middleMcp, wrist).normalize();
-//   const fingerDir = new THREE.Vector3().subVectors(fingerMcp, wrist).normalize();
-
-//   const cross = new THREE.Vector3().crossVectors(refDir, fingerDir);
-//   let spreadAngle = Math.asin(THREE.MathUtils.clamp(cross.z, -1, 1));
-//   spreadAngle *= CONFIG.FINGER_SPREAD_MULTIPLIER;
-//   return spreadAngle;
-// }
-
-function applyFingerRotations(boneMap: Map<string, THREE.Bone>, landmarks: Array<{ x: number; y: number; z: number }>, fingerName: keyof typeof FINGER_CHAINS, side: "left" | "right"): void {
-  const boneNames = FINGER_BONES[side][fingerName];
-  const rotations = calculateFingerRotations(landmarks, fingerName, side);
-
-  for (let i = 0; i < 4; i++) {
+  for (let i = 0; i < 3; i++) {
     const boneName = boneNames[i];
     const bone = getBone(boneMap, boneName);
-    if (!bone) continue;
 
-    const smoothedQuat = getSmoothedQuaternion(boneName, rotations[i], CONFIG.FINGER_SMOOTHING);
-    bone.quaternion.copy(smoothedQuat);
+    if (!bone) {
+      if (!fingerBoneWarningLogged) {
+        console.warn(`[bone-mapper] Finger bone "${boneName}" not found. Available hand bones:`,
+          Array.from(boneMap.keys()).filter(k => k.toLowerCase().includes("hand") && k[0] === k[0].toUpperCase()).join(", "));
+        fingerBoneWarningLogged = true;
+      }
+      continue;
+    }
+
+    // Rest local quaternion (captured in T-pose)
+    const restLocalQ = getRestQuat(bone, boneName);
+    if (!restLocalQ) continue;
+
+    // 1. Direction the bone points in parent-local space at rest
+    const restLocalDir = upVec.clone().applyQuaternion(restLocalQ).normalize();
+
+    // 2. Target direction from landmarks (in MediaPipe / ~model world space)
+    const [fromIdx, toIdx] = segments[i];
+    const from = vec3FromLandmarks(landmarks, fromIdx);
+    const to = vec3FromLandmarks(landmarks, toIdx);
+    const targetWorldDir = new THREE.Vector3().subVectors(to, from);
+
+    if (targetWorldDir.lengthSq() < 1e-10) continue;
+    targetWorldDir.normalize();
+
+    // 3. Transform target direction into parent-local space
+    //    This uses the CURRENT animated parent world quat, so it correctly
+    //    accounts for the entire chain (shoulder + arm + wrist + prev finger bones)
+    const parentWorldQuat = new THREE.Quaternion();
+    if (bone.parent) bone.parent.getWorldQuaternion(parentWorldQuat);
+    const targetLocalDir = targetWorldDir.clone()
+      .applyQuaternion(parentWorldQuat.clone().invert())
+      .normalize();
+
+    // 4. Delta rotation from rest to target, both in parent-local space
+    //    This is a minimal swing-only rotation -- no spurious twist
+    const deltaQuat = safeSetFromUnitVectors(restLocalDir, targetLocalDir);
+
+    // 5. Apply delta to rest local quaternion (preserves the rig's natural twist)
+    const localQuat = deltaQuat.clone().multiply(restLocalQ);
+
+    // 6. Smooth and apply
+    const smoothed = getSmoothedQuaternion(boneName, localQuat, CONFIG.FINGER_SMOOTHING);
+    bone.quaternion.copy(smoothed);
+
+    // Debug log (once per animation start)
+    if (!fingerDebugLogged && side === "left" && fingerName === "index" && i === 0) {
+      console.log(`[finger-IK] ${boneName}: restLocalDir=(${restLocalDir.x.toFixed(3)},${restLocalDir.y.toFixed(3)},${restLocalDir.z.toFixed(3)}) targetLocalDir=(${targetLocalDir.x.toFixed(3)},${targetLocalDir.y.toFixed(3)},${targetLocalDir.z.toFixed(3)})`);
+      fingerDebugLogged = true;
+    }
+  }
+
+  // 4th bone (fingertip terminator): keep at rest pose
+  const tipBoneName = boneNames[3];
+  const tipBone = getBone(boneMap, tipBoneName);
+  if (tipBone) {
+    const rq = getRestQuat(tipBone, tipBoneName);
+    if (rq) tipBone.quaternion.copy(rq);
   }
 }
 
 export function applyHandMotion(boneMap: Map<string, THREE.Bone>, handsData: any): void {
   if (!handsData) return;
-  const fingers: Array<keyof typeof FINGER_CHAINS> = ["thumb", "index", "middle", "ring", "pinky"];
+
+  // Ensure rest poses are available (guards against HMR module reload)
+  recoverRestPoses(boneMap);
+
+  const fingerNames = ["thumb", "index", "middle", "ring", "pinky"];
 
   if (handsData.left?.landmarks?.length === 21) {
-    applyWristOrientation(boneMap, handsData.left, "left");
-    for (const finger of fingers) applyFingerRotations(boneMap, handsData.left.landmarks, finger, "left");
+    const smoothedLandmarks = getSmoothedLandmarks(handsData.left.landmarks, "left_hand");
+    applyWristFromLandmarks(boneMap, smoothedLandmarks, "left");
+    for (const finger of fingerNames) applyFingerIK(boneMap, smoothedLandmarks, finger, "left");
   }
 
   if (handsData.right?.landmarks?.length === 21) {
-    applyWristOrientation(boneMap, handsData.right, "right");
-    for (const finger of fingers) applyFingerRotations(boneMap, handsData.right.landmarks, finger, "right");
+    const smoothedLandmarks = getSmoothedLandmarks(handsData.right.landmarks, "right_hand");
+    applyWristFromLandmarks(boneMap, smoothedLandmarks, "right");
+    for (const finger of fingerNames) applyFingerIK(boneMap, smoothedLandmarks, finger, "right");
   }
 }
 
 // ============================================
-// FACE MOTION & SETUP
+// FACE MOTION
 // ============================================
 
-export function applyFaceMotion(skinnedMesh: THREE.SkinnedMesh, faceData: FaceBlendshapes): void {
-  if (!skinnedMesh.morphTargetDictionary || !skinnedMesh.morphTargetInfluences) return;
+function setMorphTarget(
+  dict: Record<string, number>,
+  influences: number[],
+  name: string,
+  value: number,
+): boolean {
+  if (dict[name] !== undefined) {
+    influences[dict[name]] = value;
+    return true;
+  }
+  return false;
+}
 
-  const dict = skinnedMesh.morphTargetDictionary;
-  const influences = skinnedMesh.morphTargetInfluences;
+let faceDebugLogged = false;
 
-  if (faceData.jawOpen !== undefined && dict["jawOpen"] !== undefined) influences[dict["jawOpen"]] = faceData.jawOpen;
-  if (faceData.mouthSmile !== undefined) {
-    if (dict["mouthSmile"] !== undefined) influences[dict["mouthSmile"]] = faceData.mouthSmile;
-    else if (dict["mouthSmileLeft"] !== undefined) {
-      influences[dict["mouthSmileLeft"]] = faceData.mouthSmile;
-      if (dict["mouthSmileRight"]) influences[dict["mouthSmileRight"]] = faceData.mouthSmile;
+function applyFaceMotionToMesh(mesh: THREE.SkinnedMesh, faceData: FaceBlendshapes, logDiag: boolean): void {
+  if (!mesh.morphTargetDictionary || !mesh.morphTargetInfluences) return;
+
+  const dict = mesh.morphTargetDictionary;
+  const influences = mesh.morphTargetInfluences;
+
+  if (logDiag) {
+    const names = Object.keys(dict);
+    console.log(`[face] Mesh "${mesh.name}" has ${names.length} morph targets:`, names.join(", "));
+  }
+
+  // jawOpen: try "jawOpen" first, fall back to "mouthOpen"
+  if (faceData.jawOpen !== undefined) {
+    if (!setMorphTarget(dict, influences, "jawOpen", faceData.jawOpen)) {
+      setMorphTarget(dict, influences, "mouthOpen", faceData.jawOpen);
     }
   }
 
-  const avgBrow = ((faceData.eyeBrowRaise_L || 0) + (faceData.eyeBrowRaise_R || 0)) / 2;
-  if (dict["browInnerUp"] !== undefined) influences[dict["browInnerUp"]] = avgBrow;
+  // mouthSmile: single or split
+  if (faceData.mouthSmile !== undefined) {
+    if (!setMorphTarget(dict, influences, "mouthSmile", faceData.mouthSmile)) {
+      setMorphTarget(dict, influences, "mouthSmileLeft", faceData.mouthSmile);
+      setMorphTarget(dict, influences, "mouthSmileRight", faceData.mouthSmile);
+    }
+  }
+
+  // eyeBrowRaise
+  const browL = faceData.eyeBrowRaise_L || 0;
+  const browR = faceData.eyeBrowRaise_R || 0;
+  const avgBrow = (browL + browR) / 2;
+
+  setMorphTarget(dict, influences, "browInnerUp", avgBrow);
+  setMorphTarget(dict, influences, "browOuterUpLeft", browL);
+  setMorphTarget(dict, influences, "browOuterUpRight", browR);
 }
+
+export function applyFaceMotion(meshes: THREE.SkinnedMesh[], faceData: FaceBlendshapes): void {
+  const logDiag = !faceDebugLogged;
+  for (const mesh of meshes) {
+    applyFaceMotionToMesh(mesh, faceData, logDiag);
+  }
+  if (logDiag) faceDebugLogged = true;
+}
+
+// ============================================
+// SCENE SETUP
+// ============================================
 
 export function buildBoneMap(scene: THREE.Object3D): Map<string, THREE.Bone> {
   const boneMap = new Map<string, THREE.Bone>();
+  const uniqueNames: string[] = [];
   scene.traverse((child) => {
     if (child instanceof THREE.Bone) {
       boneMap.set(child.name, child);
       boneMap.set(child.name.toLowerCase(), child);
+      uniqueNames.push(child.name);
     }
   });
+  console.log(`[bone-mapper] ${uniqueNames.length} bones:`, uniqueNames.join(", "));
   return boneMap;
 }
 
-export function findSkinnedMesh(scene: THREE.Object3D): THREE.SkinnedMesh | null {
-  let result: THREE.SkinnedMesh | null = null;
+export function findAllMorphMeshes(scene: THREE.Object3D): THREE.SkinnedMesh[] {
+  const meshes: THREE.SkinnedMesh[] = [];
+
   scene.traverse((child) => {
-    if (child instanceof THREE.SkinnedMesh && !result) result = child;
+    if (child instanceof THREE.SkinnedMesh) {
+      const mesh = child as THREE.SkinnedMesh;
+      if (mesh.morphTargetDictionary && Object.keys(mesh.morphTargetDictionary).length > 0) {
+        meshes.push(mesh);
+      }
+    }
   });
-  return result;
+
+  if (meshes.length > 0) {
+    console.log(`[face] Found ${meshes.length} mesh(es) with morph targets:`,
+      meshes.map(m => `"${m.name}" (${Object.keys(m.morphTargetDictionary!).length})`).join(", "));
+  } else {
+    console.warn("[face] No SkinnedMesh with morph targets found.");
+  }
+
+  return meshes;
+}
+
+/** @deprecated Use findAllMorphMeshes instead */
+export function findSkinnedMesh(scene: THREE.Object3D): THREE.SkinnedMesh | null {
+  const meshes = findAllMorphMeshes(scene);
+  return meshes[0] || null;
 }
 
 export function resetSmoothingCache(): void {
   previousQuaternions.clear();
-  console.log("🔄 Smoothing cache reset");
+  previousLandmarks.clear();
+  faceDebugLogged = false;
+  fingerBoneWarningLogged = false;
+  fingerDebugLogged = false;
+  console.log("[bone-mapper] Smoothing cache reset");
 }
 
-// // =============================================
-// // LEGACY BONE MAPPER (WITH REST POSE RESET)
-// // ===============================================
-// import * as THREE from "three";
-// import { FaceBlendshapes } from "@/types/motion";
+// ============================================
+// DEBUG
+// ============================================
+if (typeof window !== "undefined") {
+  (window as any).testFist = () => {
+    console.log("[debug] Rest pose status for finger bones:");
+    const sides = ["left", "right"] as const;
+    const fingerKeys = ["thumb", "index", "middle", "ring", "pinky"] as const;
+    for (const side of sides) {
+      for (const finger of fingerKeys) {
+        const boneNames = FINGER_BONES[side][finger];
+        for (let i = 0; i < 3; i++) {
+          const boneName = boneNames[i];
+          const has = restPoseQuaternions.has(boneName);
+          console.log(`  ${boneName}: restQuat ${has ? "OK" : "MISSING"}`);
+        }
+      }
+    }
+  };
+}
 
-// // ============================================
-// // CONFIGURATION
-// // ============================================
-// const CONFIG = {
-//   DEBUG: false,
-//   POSITION_SCALE: 1.0,
-//   SWAP_SIDES: false,
-
-//   ARM_Z_OFFSET: 0.35,
-//   ARM_X_OFFSET: -0.035,
-//   ARM_Y_OFFSET_LEFT: 0.1,
-//   ARM_Y_OFFSET_RIGHT: 0.0,
-
-//   // Finger settings
-//   FINGER_CURL_MULTIPLIER: 1.0,
-//   FINGER_SPREAD_MULTIPLIER: 0.5,
-
-//   // Smoothing
-//   ARM_SMOOTHING: 0.3,
-//   WRIST_SMOOTHING: 0.4,
-//   FINGER_SMOOTHING: 0.5,
-// };
-
-// // Debug helpers
-// if (typeof window !== "undefined") {
-//   (window as any).__MOTION_CONFIG = CONFIG;
-//   (window as any).setArmOffset = (val: number) => {
-//     CONFIG.ARM_Z_OFFSET = val;
-//     console.log(`ARM_Z_OFFSET set to ${val}`);
-//   };
-//   (window as any).setArmXOffset = (val: number) => {
-//     CONFIG.ARM_X_OFFSET = val;
-//     console.log(`ARM_X_OFFSET set to ${val}`);
-//   };
-//   (window as any).setFingerCurl = (val: number) => {
-//     CONFIG.FINGER_CURL_MULTIPLIER = val;
-//     console.log(`FINGER_CURL_MULTIPLIER set to ${val}`);
-//   };
-//   (window as any).setFingerSmoothing = (val: number) => {
-//     CONFIG.FINGER_SMOOTHING = val;
-//     console.log(`FINGER_SMOOTHING set to ${val}`);
-//   };
-//   (window as any).setArmSmoothing = (val: number) => {
-//     CONFIG.ARM_SMOOTHING = val;
-//     console.log(`ARM_SMOOTHING set to ${val}`);
-//   };
-//   (window as any).setWristSmoothing = (val: number) => {
-//     CONFIG.WRIST_SMOOTHING = val;
-//     console.log(`WRIST_SMOOTHING set to ${val}`);
-//   };
-// }
-
-// // ============================================
-// // MEDIAPIPE HAND LANDMARK INDICES
-// // ============================================
-// const HL = {
-//   WRIST: 0,
-//   THUMB_CMC: 1,
-//   THUMB_MCP: 2,
-//   THUMB_IP: 3,
-//   THUMB_TIP: 4,
-//   INDEX_MCP: 5,
-//   INDEX_PIP: 6,
-//   INDEX_DIP: 7,
-//   INDEX_TIP: 8,
-//   MIDDLE_MCP: 9,
-//   MIDDLE_PIP: 10,
-//   MIDDLE_DIP: 11,
-//   MIDDLE_TIP: 12,
-//   RING_MCP: 13,
-//   RING_PIP: 14,
-//   RING_DIP: 15,
-//   RING_TIP: 16,
-//   PINKY_MCP: 17,
-//   PINKY_PIP: 18,
-//   PINKY_DIP: 19,
-//   PINKY_TIP: 20,
-// };
-
-// // Finger joint chains: [base, proximal, intermediate, distal, tip]
-// const FINGER_CHAINS = {
-//   thumb: [HL.WRIST, HL.THUMB_CMC, HL.THUMB_MCP, HL.THUMB_IP, HL.THUMB_TIP],
-//   index: [HL.WRIST, HL.INDEX_MCP, HL.INDEX_PIP, HL.INDEX_DIP, HL.INDEX_TIP],
-//   middle: [
-//     HL.WRIST,
-//     HL.MIDDLE_MCP,
-//     HL.MIDDLE_PIP,
-//     HL.MIDDLE_DIP,
-//     HL.MIDDLE_TIP,
-//   ],
-//   ring: [HL.WRIST, HL.RING_MCP, HL.RING_PIP, HL.RING_DIP, HL.RING_TIP],
-//   pinky: [HL.WRIST, HL.PINKY_MCP, HL.PINKY_PIP, HL.PINKY_DIP, HL.PINKY_TIP],
-// };
-
-// // RPM bone names
-// const FINGER_BONES = {
-//   left: {
-//     thumb: [
-//       "LeftHandThumb1",
-//       "LeftHandThumb2",
-//       "LeftHandThumb3",
-//       "LeftHandThumb4",
-//     ],
-//     index: [
-//       "LeftHandIndex1",
-//       "LeftHandIndex2",
-//       "LeftHandIndex3",
-//       "LeftHandIndex4",
-//     ],
-//     middle: [
-//       "LeftHandMiddle1",
-//       "LeftHandMiddle2",
-//       "LeftHandMiddle3",
-//       "LeftHandMiddle4",
-//     ],
-//     ring: ["LeftHandRing1", "LeftHandRing2", "LeftHandRing3", "LeftHandRing4"],
-//     pinky: [
-//       "LeftHandPinky1",
-//       "LeftHandPinky2",
-//       "LeftHandPinky3",
-//       "LeftHandPinky4",
-//     ],
-//   },
-//   right: {
-//     thumb: [
-//       "RightHandThumb1",
-//       "RightHandThumb2",
-//       "RightHandThumb3",
-//       "RightHandThumb4",
-//     ],
-//     index: [
-//       "RightHandIndex1",
-//       "RightHandIndex2",
-//       "RightHandIndex3",
-//       "RightHandIndex4",
-//     ],
-//     middle: [
-//       "RightHandMiddle1",
-//       "RightHandMiddle2",
-//       "RightHandMiddle3",
-//       "RightHandMiddle4",
-//     ],
-//     ring: [
-//       "RightHandRing1",
-//       "RightHandRing2",
-//       "RightHandRing3",
-//       "RightHandRing4",
-//     ],
-//     pinky: [
-//       "RightHandPinky1",
-//       "RightHandPinky2",
-//       "RightHandPinky3",
-//       "RightHandPinky4",
-//     ],
-//   },
-// };
-
-// const WRIST_BONES = {
-//   left: "LeftHand",
-//   right: "RightHand",
-// };
-
-// // ============================================
-// // REST POSE STORAGE
-// // ============================================
-// const restPoseQuaternions: Map<string, THREE.Quaternion> = new Map();
-// let restPoseCaptured = false;
-
-// /**
-//  * Call ONCE after the model loads but BEFORE any animation.
-//  * Captures the A-pose rest orientation of every bone.
-//  */
-// export function captureRestPose(boneMap: Map<string, THREE.Bone>): void {
-//   // Force a world matrix update first
-//   boneMap.forEach((bone) => {
-//     bone.updateWorldMatrix(true, false);
-//   });
-
-//   boneMap.forEach((bone, name) => {
-//     restPoseQuaternions.set(name, bone.quaternion.clone());
-//   });
-
-//   restPoseCaptured = true;
-//   console.log("📐 Rest pose captured for", restPoseQuaternions.size, "bones");
-// }
-
-// /**
-//  * Instantly snaps all bones back to their captured A-pose.
-//  */
-// export function resetToRestPose(boneMap: Map<string, THREE.Bone>): void {
-//   if (!restPoseCaptured) {
-//     console.warn("⚠️ No rest pose captured — cannot reset");
-//     return;
-//   }
-
-//   boneMap.forEach((bone, name) => {
-//     const restQuat = restPoseQuaternions.get(name);
-//     if (restQuat) {
-//       bone.quaternion.copy(restQuat);
-//     }
-//   });
-
-//   // Clear smoothing cache so next animation starts clean
-//   previousQuaternions.clear();
-//   console.log("🔄 Reset to A-pose");
-// }
-
-// /**
-//  * Smoothly blends all bones toward their A-pose over multiple frames.
-//  * Call this every frame during the transition.
-//  * Returns `true` when the blend is complete.
-//  *
-//  * @param boneMap     The bone map for the model
-//  * @param blendFactor 0→1 how fast to blend per call (e.g. 0.08 = gentle, 0.3 = fast)
-//  * @param threshold   How close quaternions must be to count as "done"
-//  */
-// export function blendToRestPose(
-//   boneMap: Map<string, THREE.Bone>,
-//   blendFactor: number = 0.1,
-//   threshold: number = 0.001,
-// ): boolean {
-//   if (!restPoseCaptured) return true;
-
-//   let allDone = true;
-
-//   boneMap.forEach((bone, name) => {
-//     const restQuat = restPoseQuaternions.get(name);
-//     if (!restQuat) return;
-
-//     // Check if already close enough
-//     const dot = Math.abs(bone.quaternion.dot(restQuat));
-//     if (dot >= 1 - threshold) {
-//       bone.quaternion.copy(restQuat);
-//       return;
-//     }
-
-//     allDone = false;
-
-//     // Ensure shortest path SLERP
-//     const target = restQuat.clone();
-//     if (bone.quaternion.dot(target) < 0) {
-//       target.set(-target.x, -target.y, -target.z, -target.w);
-//     }
-
-//     // SLERP toward rest pose
-//     bone.quaternion.slerp(target, blendFactor);
-//   });
-
-//   if (allDone) {
-//     // Clear smoothing cache once settled
-//     previousQuaternions.clear();
-//     console.log("✅ Blend to A-pose complete");
-//   }
-
-//   return allDone;
-// }
-
-// /**
-//  * Returns whether a rest pose has been captured.
-//  */
-// export function isRestPoseCaptured(): boolean {
-//   return restPoseCaptured;
-// }
-
-// // ============================================
-// // SMOOTHING STATE
-// // ============================================
-// const previousQuaternions: Map<string, THREE.Quaternion> = new Map();
-
-// /**
-//  * Ensures shortest-path SLERP by flipping the target quaternion
-//  * if it's in the opposite hemisphere from the previous one.
-//  * Mutates targetQuat in place.
-//  */
-// function ensureShortestPath(
-//   prev: THREE.Quaternion,
-//   target: THREE.Quaternion,
-// ): void {
-//   if (prev.dot(target) < 0) {
-//     target.set(-target.x, -target.y, -target.z, -target.w);
-//   }
-// }
-
-// function getSmoothedQuaternion(
-//   boneName: string,
-//   targetQuat: THREE.Quaternion,
-//   smoothing: number,
-// ): THREE.Quaternion {
-//   const result = new THREE.Quaternion();
-
-//   if (smoothing <= 0) {
-//     previousQuaternions.set(boneName, targetQuat.clone());
-//     return targetQuat.clone();
-//   }
-
-//   const prevQuat = previousQuaternions.get(boneName);
-//   if (prevQuat) {
-//     // Fix: enforce shortest rotation path before interpolation
-//     ensureShortestPath(prevQuat, targetQuat);
-
-//     // ---> NEW: If the new rotation is extremely close to the previous frame,
-//     // don't update it at all. This stops the visual "buzzing".
-//     if (Math.abs(prevQuat.dot(targetQuat)) > 0.9995) {
-//       return prevQuat.clone();
-//     }
-
-//     result.slerpQuaternions(prevQuat, targetQuat, 1 - smoothing);
-//   } else {
-//     result.copy(targetQuat);
-//   }
-
-//   previousQuaternions.set(boneName, result.clone());
-//   return result;
-// }
-
-// // ============================================
-// // UTILITIES
-// // ============================================
-
-// function getBone(
-//   boneMap: Map<string, THREE.Bone>,
-//   name: string,
-// ): THREE.Bone | undefined {
-//   return boneMap.get(name) || boneMap.get(name.toLowerCase());
-// }
-
-// function landmarkToVec3(lm: {
-//   x: number;
-//   y: number;
-//   z: number;
-// }): THREE.Vector3 {
-//   return new THREE.Vector3(lm.x, lm.y, lm.z);
-// }
-
-// function vec3FromLandmarks(
-//   landmarks: Array<{ x: number; y: number; z: number }>,
-//   index: number,
-// ): THREE.Vector3 {
-//   return landmarkToVec3(landmarks[index]);
-// }
-
-// /**
-//  * Safe version of setFromUnitVectors that handles the degenerate case
-//  * where from and to are nearly opposite (which causes singularity).
-//  */
-// function safeSetFromUnitVectors(
-//   from: THREE.Vector3,
-//   to: THREE.Vector3,
-//   fallbackAxis: THREE.Vector3 = new THREE.Vector3(0, 0, 1),
-// ): THREE.Quaternion {
-//   const quat = new THREE.Quaternion();
-//   const dot = from.dot(to);
-
-//   if (dot > 0.9999) {
-//     // Nearly identical — identity rotation
-//     return quat.identity();
-//   } else if (dot < -0.9999) {
-//     // Nearly opposite — 180° rotation around fallback axis
-//     return quat.setFromAxisAngle(fallbackAxis, Math.PI);
-//   }
-
-//   return quat.setFromUnitVectors(from, to);
-// }
-
-// // ============================================
-// // ARM IK SOLVER
-// // ============================================
-
-// function solveArmIK(
-//   shoulderBone: THREE.Bone | undefined,
-//   elbowBone: THREE.Bone | undefined,
-//   shoulderPos: { x: number; y: number; z: number },
-//   elbowPos: { x: number; y: number; z: number },
-//   wristPos: { x: number; y: number; z: number },
-//   isLeftArm: boolean = true,
-// ): void {
-//   if (!shoulderBone || !elbowBone) return;
-
-//   const scale = CONFIG.POSITION_SCALE;
-//   const zOffset = CONFIG.ARM_Z_OFFSET;
-//   const xOffset = CONFIG.ARM_X_OFFSET;
-//   const yOffset = isLeftArm
-//     ? CONFIG.ARM_Y_OFFSET_LEFT
-//     : CONFIG.ARM_Y_OFFSET_RIGHT;
-
-//   const xSign = isLeftArm ? 1 : -1;
-
-//   const shoulder = new THREE.Vector3(
-//     shoulderPos.x * scale,
-//     -shoulderPos.y * scale,
-//     shoulderPos.z * scale,
-//   );
-//   const elbow = new THREE.Vector3(
-//     elbowPos.x * scale + xOffset * 0.5 * xSign,
-//     -elbowPos.y * scale - yOffset * 0.5,
-//     elbowPos.z * scale + zOffset * 0.5,
-//   );
-//   const wrist = new THREE.Vector3(
-//     wristPos.x * scale + xOffset * xSign,
-//     -wristPos.y * scale - yOffset,
-//     wristPos.z * scale + zOffset,
-//   );
-
-//   const upperArmDir = new THREE.Vector3()
-//     .subVectors(elbow, shoulder)
-//     .normalize();
-//   const lowerArmDir = new THREE.Vector3().subVectors(wrist, elbow).normalize();
-
-//   const restDir = new THREE.Vector3(0, 1, 0);
-
-//   // Use fallback axis appropriate for arms (Z axis works well for side-to-side)
-//   const armFallback = new THREE.Vector3(0, 0, isLeftArm ? 1 : -1);
-
-//   // Upper arm
-//   const upperArmQuat = safeSetFromUnitVectors(
-//     restDir,
-//     upperArmDir,
-//     armFallback,
-//   );
-//   const parentWorldQuat = new THREE.Quaternion();
-//   if (shoulderBone.parent) {
-//     shoulderBone.parent.getWorldQuaternion(parentWorldQuat);
-//   }
-//   const localUpperQuat = parentWorldQuat
-//     .clone()
-//     .invert()
-//     .multiply(upperArmQuat);
-
-//   const smoothedUpperQuat = getSmoothedQuaternion(
-//     shoulderBone.name,
-//     localUpperQuat,
-//     CONFIG.ARM_SMOOTHING,
-//   );
-//   shoulderBone.quaternion.copy(smoothedUpperQuat);
-
-//   // Lower arm
-//   const lowerArmQuat = safeSetFromUnitVectors(
-//     restDir,
-//     lowerArmDir,
-//     armFallback,
-//   );
-//   const elbowParentWorldQuat = new THREE.Quaternion();
-//   shoulderBone.getWorldQuaternion(elbowParentWorldQuat);
-//   const localLowerQuat = elbowParentWorldQuat
-//     .clone()
-//     .invert()
-//     .multiply(lowerArmQuat);
-
-//   const smoothedLowerQuat = getSmoothedQuaternion(
-//     elbowBone.name,
-//     localLowerQuat,
-//     CONFIG.ARM_SMOOTHING,
-//   );
-//   elbowBone.quaternion.copy(smoothedLowerQuat);
-// }
-
-// // ============================================
-// // BODY MOTION
-// // ============================================
-
-// export function applyBodyMotion(
-//   boneMap: Map<string, THREE.Bone>,
-//   bodyData: any,
-// ): void {
-//   if (!bodyData) return;
-
-//   const leftArm = getBone(boneMap, "LeftArm");
-//   const leftForeArm = getBone(boneMap, "LeftForeArm");
-//   const rightArm = getBone(boneMap, "RightArm");
-//   const rightForeArm = getBone(boneMap, "RightForeArm");
-
-//   if (CONFIG.SWAP_SIDES) {
-//     if (bodyData.left_shoulder && bodyData.left_elbow && bodyData.left_wrist) {
-//       solveArmIK(
-//         rightArm,
-//         rightForeArm,
-//         bodyData.left_shoulder,
-//         bodyData.left_elbow,
-//         bodyData.left_wrist,
-//         false,
-//       );
-//     }
-//     if (
-//       bodyData.right_shoulder &&
-//       bodyData.right_elbow &&
-//       bodyData.right_wrist
-//     ) {
-//       solveArmIK(
-//         leftArm,
-//         leftForeArm,
-//         bodyData.right_shoulder,
-//         bodyData.right_elbow,
-//         bodyData.right_wrist,
-//         true,
-//       );
-//     }
-//   } else {
-//     if (bodyData.left_shoulder && bodyData.left_elbow && bodyData.left_wrist) {
-//       solveArmIK(
-//         leftArm,
-//         leftForeArm,
-//         bodyData.left_shoulder,
-//         bodyData.left_elbow,
-//         bodyData.left_wrist,
-//         true,
-//       );
-//     }
-//     if (
-//       bodyData.right_shoulder &&
-//       bodyData.right_elbow &&
-//       bodyData.right_wrist
-//     ) {
-//       solveArmIK(
-//         rightArm,
-//         rightForeArm,
-//         bodyData.right_shoulder,
-//         bodyData.right_elbow,
-//         bodyData.right_wrist,
-//         false,
-//       );
-//     }
-//   }
-// }
-
-// // ============================================
-// // WRIST ORIENTATION
-// // ============================================
-
-// function applyWristOrientation(
-//   boneMap: Map<string, THREE.Bone>,
-//   handData: any,
-//   side: "left" | "right",
-// ): void {
-//   const wristBoneName = WRIST_BONES[side];
-//   const wristBone = getBone(boneMap, wristBoneName);
-
-//   if (!wristBone || !handData?.wrist_quaternion) return;
-
-//   const wq = handData.wrist_quaternion;
-//   const targetQuat = new THREE.Quaternion(wq.x, wq.y, wq.z, wq.w);
-
-//   // Convert from world space to local space
-//   const parentWorldQuat = new THREE.Quaternion();
-//   if (wristBone.parent) {
-//     wristBone.parent.getWorldQuaternion(parentWorldQuat);
-//   }
-
-//   // RPM rest pose offset
-//   const restPoseOffset = new THREE.Quaternion();
-//   if (side === "left") {
-//     restPoseOffset.setFromEuler(new THREE.Euler(0, 0, 0));
-//   } else {
-//     restPoseOffset.setFromEuler(new THREE.Euler(0, 0, 0));
-//   }
-
-//   const localQuat = parentWorldQuat
-//     .clone()
-//     .invert()
-//     .multiply(targetQuat)
-//     .multiply(restPoseOffset);
-
-//   const smoothedQuat = getSmoothedQuaternion(
-//     wristBoneName,
-//     localQuat,
-//     CONFIG.WRIST_SMOOTHING,
-//   );
-
-//   wristBone.quaternion.copy(smoothedQuat);
-// }
-
-// // ============================================
-// // FINGER PROCESSING
-// // ============================================
-
-// function calculateFingerRotations(
-//   landmarks: Array<{ x: number; y: number; z: number }>,
-//   fingerName: keyof typeof FINGER_CHAINS,
-//   side: "left" | "right",
-// ): THREE.Quaternion[] {
-//   const chain = FINGER_CHAINS[fingerName];
-//   const rotations: THREE.Quaternion[] = [];
-
-//   const isThumb = fingerName === "thumb";
-//   const isLeft = side === "left";
-
-//   const positions = chain.map((idx) => vec3FromLandmarks(landmarks, idx));
-
-//   for (let i = 0; i < 4; i++) {
-//     const p0 = positions[Math.max(0, i)];
-//     const p1 = positions[i + 1];
-//     const p2 = positions[Math.min(i + 2, 4)];
-
-//     const v1 = new THREE.Vector3().subVectors(p0, p1).normalize();
-//     const v2 = new THREE.Vector3().subVectors(p2, p1).normalize();
-
-//     const dot = THREE.MathUtils.clamp(v1.dot(v2), -1, 1);
-//     const bendAngle = Math.acos(dot);
-
-//     let curlAmount = (Math.PI - bendAngle) * CONFIG.FINGER_CURL_MULTIPLIER;
-
-//     // ---> NEW: Deadzone. If curl is less than ~4.5 degrees (0.08 rads),
-//     // clamp it to 0 so straight fingers stop vibrating.
-//     if (curlAmount < 0.08) {
-//       curlAmount = 0;
-//     }
-
-//     let maxCurl = Math.PI * 0.5;
-//     if (i === 0) maxCurl = Math.PI * 0.4;
-//     if (i === 3) maxCurl = Math.PI * 0.35;
-
-//     curlAmount = THREE.MathUtils.clamp(curlAmount, 0, maxCurl);
-
-//     let rotation: THREE.Quaternion;
-
-//     if (isThumb) {
-//       const curlAxis = new THREE.Vector3(1, 0, 0);
-//       const spreadAxis = new THREE.Vector3(0, 0, 1);
-
-//       const spreadAngle = calculateThumbSpread(landmarks, i, isLeft);
-
-//       const curlQuat = new THREE.Quaternion().setFromAxisAngle(
-//         curlAxis,
-//         curlAmount,
-//       );
-//       const spreadQuat = new THREE.Quaternion().setFromAxisAngle(
-//         spreadAxis,
-//         spreadAngle,
-//       );
-
-//       rotation = spreadQuat.multiply(curlQuat);
-//     } else {
-//       const curlAxis = new THREE.Vector3(1, 0, 0);
-//       rotation = new THREE.Quaternion().setFromAxisAngle(curlAxis, curlAmount);
-
-//       if (i === 0) {
-//         const spreadAngle = calculateFingerSpread(
-//           landmarks,
-//           fingerName,
-//           isLeft,
-//         );
-//         const spreadAxis = new THREE.Vector3(0, isLeft ? -1 : 1, 0);
-//         const spreadQuat = new THREE.Quaternion().setFromAxisAngle(
-//           spreadAxis,
-//           spreadAngle,
-//         );
-//         rotation.premultiply(spreadQuat);
-//       }
-//     }
-
-//     rotations.push(rotation);
-//   }
-
-//   return rotations;
-// }
-
-// function calculateThumbSpread(
-//   landmarks: Array<{ x: number; y: number; z: number }>,
-//   jointIndex: number,
-//   isLeft: boolean,
-// ): number {
-//   const thumbTip = vec3FromLandmarks(landmarks, HL.THUMB_TIP);
-//   const indexMcp = vec3FromLandmarks(landmarks, HL.INDEX_MCP);
-//   const wrist = vec3FromLandmarks(landmarks, HL.WRIST);
-
-//   const thumbDir = new THREE.Vector3().subVectors(thumbTip, wrist).normalize();
-//   const indexDir = new THREE.Vector3().subVectors(indexMcp, wrist).normalize();
-
-//   const cross = new THREE.Vector3().crossVectors(indexDir, thumbDir);
-
-//   let spreadAngle = Math.asin(THREE.MathUtils.clamp(cross.y, -1, 1));
-//   spreadAngle *= CONFIG.FINGER_SPREAD_MULTIPLIER;
-//   spreadAngle *= 1 - jointIndex * 0.3;
-
-//   return isLeft ? -spreadAngle : spreadAngle;
-// }
-
-// function calculateFingerSpread(
-//   landmarks: Array<{ x: number; y: number; z: number }>,
-//   fingerName: keyof typeof FINGER_CHAINS,
-//   isLeft: boolean,
-// ): number {
-//   const fingerMcpIndices: Record<string, number> = {
-//     index: HL.INDEX_MCP,
-//     middle: HL.MIDDLE_MCP,
-//     ring: HL.RING_MCP,
-//     pinky: HL.PINKY_MCP,
-//   };
-
-//   const mcpIdx = fingerMcpIndices[fingerName];
-//   if (!mcpIdx) return 0;
-
-//   const wrist = vec3FromLandmarks(landmarks, HL.WRIST);
-//   const middleMcp = vec3FromLandmarks(landmarks, HL.MIDDLE_MCP);
-//   const fingerMcp = vec3FromLandmarks(landmarks, mcpIdx);
-
-//   const refDir = new THREE.Vector3().subVectors(middleMcp, wrist).normalize();
-//   const fingerDir = new THREE.Vector3()
-//     .subVectors(fingerMcp, wrist)
-//     .normalize();
-
-//   const cross = new THREE.Vector3().crossVectors(refDir, fingerDir);
-//   let spreadAngle = Math.asin(THREE.MathUtils.clamp(cross.z, -1, 1));
-
-//   spreadAngle *= CONFIG.FINGER_SPREAD_MULTIPLIER;
-
-//   return spreadAngle;
-// }
-
-// function applyFingerRotations(
-//   boneMap: Map<string, THREE.Bone>,
-//   landmarks: Array<{ x: number; y: number; z: number }>,
-//   fingerName: keyof typeof FINGER_CHAINS,
-//   side: "left" | "right",
-// ): void {
-//   const boneNames = FINGER_BONES[side][fingerName];
-//   const rotations = calculateFingerRotations(landmarks, fingerName, side);
-
-//   for (let i = 0; i < 4; i++) {
-//     const boneName = boneNames[i];
-//     const bone = getBone(boneMap, boneName);
-
-//     if (!bone) continue;
-
-//     const smoothedQuat = getSmoothedQuaternion(
-//       boneName,
-//       rotations[i],
-//       CONFIG.FINGER_SMOOTHING,
-//     );
-
-//     bone.quaternion.copy(smoothedQuat);
-//   }
-// }
-
-// // ============================================
-// // HAND MOTION
-// // ============================================
-
-// export function applyHandMotion(
-//   boneMap: Map<string, THREE.Bone>,
-//   handsData: any,
-// ): void {
-//   if (!handsData) return;
-
-//   const fingers: Array<keyof typeof FINGER_CHAINS> = [
-//     "thumb",
-//     "index",
-//     "middle",
-//     "ring",
-//     "pinky",
-//   ];
-
-//   if (handsData.left?.landmarks?.length === 21) {
-//     applyWristOrientation(boneMap, handsData.left, "left");
-
-//     for (const finger of fingers) {
-//       applyFingerRotations(boneMap, handsData.left.landmarks, finger, "left");
-//     }
-//   }
-
-//   if (handsData.right?.landmarks?.length === 21) {
-//     applyWristOrientation(boneMap, handsData.right, "right");
-
-//     for (const finger of fingers) {
-//       applyFingerRotations(boneMap, handsData.right.landmarks, finger, "right");
-//     }
-//   }
-// }
-
-// // ============================================
-// // FACE MOTION
-// // ============================================
-
-// export function applyFaceMotion(
-//   skinnedMesh: THREE.SkinnedMesh,
-//   faceData: FaceBlendshapes,
-// ): void {
-//   if (!skinnedMesh.morphTargetDictionary || !skinnedMesh.morphTargetInfluences)
-//     return;
-
-//   const dict = skinnedMesh.morphTargetDictionary;
-//   const influences = skinnedMesh.morphTargetInfluences;
-
-//   if (faceData.jawOpen !== undefined && dict["jawOpen"] !== undefined) {
-//     influences[dict["jawOpen"]] = faceData.jawOpen;
-//   }
-
-//   if (faceData.mouthSmile !== undefined) {
-//     if (dict["mouthSmile"] !== undefined) {
-//       influences[dict["mouthSmile"]] = faceData.mouthSmile;
-//     } else if (dict["mouthSmileLeft"] !== undefined) {
-//       influences[dict["mouthSmileLeft"]] = faceData.mouthSmile; if (dict["mouthSmileRight"]) {
-//         influences[dict["mouthSmileRight"]] = faceData.mouthSmile;
-//       }
-//     }
-//   }
-
-//   const avgBrow =
-//     ((faceData.eyeBrowRaise_L || 0) + (faceData.eyeBrowRaise_R || 0)) / 2;
-//   if (dict["browInnerUp"] !== undefined) {
-//     influences[dict["browInnerUp"]] = avgBrow;
-//   }
-// }
-
-// // ============================================
-// // SETUP
-// // ============================================
-
-// export function buildBoneMap(scene: THREE.Object3D): Map<string, THREE.Bone> {
-//   const boneMap = new Map<string, THREE.Bone>();
-
-//   scene.traverse((child) => {
-//     if (child instanceof THREE.Bone) {
-//       boneMap.set(child.name, child);
-//       boneMap.set(child.name.toLowerCase(), child);
-//     }
-//   });
-
-//   return boneMap;
-// }
-
-// export function findSkinnedMesh(
-//   scene: THREE.Object3D,
-// ): THREE.SkinnedMesh | null {
-//   let result: THREE.SkinnedMesh | null = null;
-//   scene.traverse((child) => {
-//     if (child instanceof THREE.SkinnedMesh && !result) {
-//       result = child;
-//     }
-//   });
-//   return result;
-// }
-
-// export function resetSmoothingCache(): void {
-//   previousQuaternions.clear();
-//   console.log("🔄 Smoothing cache reset");
-// }
-
-// // =============================================
-// // LEGACY BONE MAPPER (WITH REST POSE RESET)
-// // ===============================================
-// import * as THREE from "three";
-// import { FaceBlendshapes } from "@/types/motion";
-
-// // ============================================
-// // CONFIGURATION
-// // ============================================
-// const CONFIG = {
-//   DEBUG: false,
-//   POSITION_SCALE: 1.0,
-//   SWAP_SIDES: false,
-
-//   ARM_Z_OFFSET: 0.35,
-//   ARM_X_OFFSET: -0.035,
-//   ARM_Y_OFFSET_LEFT: 0.1,
-//   ARM_Y_OFFSET_RIGHT: 0.0,
-
-//   // Finger settings
-//   FINGER_CURL_MULTIPLIER: 1.0,
-//   FINGER_SPREAD_MULTIPLIER: 0.5,
-
-//   // Smoothing
-//   ARM_SMOOTHING: 0.3,
-//   WRIST_SMOOTHING: 0.4,
-//   FINGER_SMOOTHING: 0.5,
-// };
-
-// // Debug helpers
-// if (typeof window !== "undefined") {
-//   (window as any).__MOTION_CONFIG = CONFIG;
-//   (window as any).setArmOffset = (val: number) => {
-//     CONFIG.ARM_Z_OFFSET = val;
-//     console.log(`ARM_Z_OFFSET set to ${val}`);
-//   };
-//   (window as any).setArmXOffset = (val: number) => {
-//     CONFIG.ARM_X_OFFSET = val;
-//     console.log(`ARM_X_OFFSET set to ${val}`);
-//   };
-//   (window as any).setFingerCurl = (val: number) => {
-//     CONFIG.FINGER_CURL_MULTIPLIER = val;
-//     console.log(`FINGER_CURL_MULTIPLIER set to ${val}`);
-//   };
-//   (window as any).setFingerSmoothing = (val: number) => {
-//     CONFIG.FINGER_SMOOTHING = val;
-//     console.log(`FINGER_SMOOTHING set to ${val}`);
-//   };
-//   (window as any).setArmSmoothing = (val: number) => {
-//     CONFIG.ARM_SMOOTHING = val;
-//     console.log(`ARM_SMOOTHING set to ${val}`);
-//   };
-//   (window as any).setWristSmoothing = (val: number) => {
-//     CONFIG.WRIST_SMOOTHING = val;
-//     console.log(`WRIST_SMOOTHING set to ${val}`);
-//   };
-// }
-
-// // ============================================
-// // MEDIAPIPE HAND LANDMARK INDICES
-// // ============================================
-// const HL = {
-//   WRIST: 0,
-//   THUMB_CMC: 1,
-//   THUMB_MCP: 2,
-//   THUMB_IP: 3,
-//   THUMB_TIP: 4,
-//   INDEX_MCP: 5,
-//   INDEX_PIP: 6,
-//   INDEX_DIP: 7,
-//   INDEX_TIP: 8,
-//   MIDDLE_MCP: 9,
-//   MIDDLE_PIP: 10,
-//   MIDDLE_DIP: 11,
-//   MIDDLE_TIP: 12,
-//   RING_MCP: 13,
-//   RING_PIP: 14,
-//   RING_DIP: 15,
-//   RING_TIP: 16,
-//   PINKY_MCP: 17,
-//   PINKY_PIP: 18,
-//   PINKY_DIP: 19,
-//   PINKY_TIP: 20,
-// };
-
-// // Finger joint chains: [base, proximal, intermediate, distal, tip]
-// const FINGER_CHAINS = {
-//   thumb: [HL.WRIST, HL.THUMB_CMC, HL.THUMB_MCP, HL.THUMB_IP, HL.THUMB_TIP],
-//   index: [HL.WRIST, HL.INDEX_MCP, HL.INDEX_PIP, HL.INDEX_DIP, HL.INDEX_TIP],
-//   middle: [
-//     HL.WRIST,
-//     HL.MIDDLE_MCP,
-//     HL.MIDDLE_PIP,
-//     HL.MIDDLE_DIP,
-//     HL.MIDDLE_TIP,
-//   ],
-//   ring: [HL.WRIST, HL.RING_MCP, HL.RING_PIP, HL.RING_DIP, HL.RING_TIP],
-//   pinky: [HL.WRIST, HL.PINKY_MCP, HL.PINKY_PIP, HL.PINKY_DIP, HL.PINKY_TIP],
-// };
-
-// // RPM bone names
-// const FINGER_BONES = {
-//   left: {
-//     thumb: [
-//       "LeftHandThumb1",
-//       "LeftHandThumb2",
-//       "LeftHandThumb3",
-//       "LeftHandThumb4",
-//     ],
-//     index: [
-//       "LeftHandIndex1",
-//       "LeftHandIndex2",
-//       "LeftHandIndex3",
-//       "LeftHandIndex4",
-//     ],
-//     middle: [
-//       "LeftHandMiddle1",
-//       "LeftHandMiddle2",
-//       "LeftHandMiddle3",
-//       "LeftHandMiddle4",
-//     ],
-//     ring: ["LeftHandRing1", "LeftHandRing2", "LeftHandRing3", "LeftHandRing4"],
-//     pinky: [
-//       "LeftHandPinky1",
-//       "LeftHandPinky2",
-//       "LeftHandPinky3",
-//       "LeftHandPinky4",
-//     ],
-//   },
-//   right: {
-//     thumb: [
-//       "RightHandThumb1",
-//       "RightHandThumb2",
-//       "RightHandThumb3",
-//       "RightHandThumb4",
-//     ],
-//     index: [
-//       "RightHandIndex1",
-//       "RightHandIndex2",
-//       "RightHandIndex3",
-//       "RightHandIndex4",
-//     ],
-//     middle: [
-//       "RightHandMiddle1",
-//       "RightHandMiddle2",
-//       "RightHandMiddle3",
-//       "RightHandMiddle4",
-//     ],
-//     ring: [
-//       "RightHandRing1",
-//       "RightHandRing2",
-//       "RightHandRing3",
-//       "RightHandRing4",
-//     ],
-//     pinky: [
-//       "RightHandPinky1",
-//       "RightHandPinky2",
-//       "RightHandPinky3",
-//       "RightHandPinky4",
-//     ],
-//   },
-// };
-
-// const WRIST_BONES = {
-//   left: "LeftHand",
-//   right: "RightHand",
-// };
-
-// // ============================================
-// // REST POSE STORAGE
-// // ============================================
-// const restPoseQuaternions: Map<string, THREE.Quaternion> = new Map();
-// let restPoseCaptured = false;
-
-// /**
-//  * Call ONCE after the model loads but BEFORE any animation.
-//  * Captures the A-pose rest orientation of every bone.
-//  */
-// export function captureRestPose(boneMap: Map<string, THREE.Bone>): void {
-//   // Force a world matrix update first
-//   boneMap.forEach((bone) => {
-//     bone.updateWorldMatrix(true, false);
-//   });
-
-//   boneMap.forEach((bone, name) => {
-//     restPoseQuaternions.set(name, bone.quaternion.clone());
-//   });
-
-//   restPoseCaptured = true;
-//   console.log("📐 Rest pose captured for", restPoseQuaternions.size, "bones");
-// }
-
-// /**
-//  * Instantly snaps all bones back to their captured A-pose.
-//  */
-// export function resetToRestPose(boneMap: Map<string, THREE.Bone>): void {
-//   if (!restPoseCaptured) {
-//     console.warn("⚠️ No rest pose captured — cannot reset");
-//     return;
-//   }
-
-//   boneMap.forEach((bone, name) => {
-//     const restQuat = restPoseQuaternions.get(name);
-//     if (restQuat) {
-//       bone.quaternion.copy(restQuat);
-//     }
-//   });
-
-//   // Clear smoothing cache so next animation starts clean
-//   previousQuaternions.clear();
-//   console.log("🔄 Reset to A-pose");
-// }
-
-// /**
-//  * Smoothly blends all bones toward their A-pose over multiple frames.
-//  * Call this every frame during the transition.
-//  * Returns `true` when the blend is complete.
-//  *
-//  * @param boneMap     The bone map for the model
-//  * @param blendFactor 0→1 how fast to blend per call (e.g. 0.08 = gentle, 0.3 = fast)
-//  * @param threshold   How close quaternions must be to count as "done"
-//  */
-// export function blendToRestPose(
-//   boneMap: Map<string, THREE.Bone>,
-//   blendFactor: number = 0.1,
-//   threshold: number = 0.001,
-// ): boolean {
-//   if (!restPoseCaptured) return true;
-
-//   let allDone = true;
-
-//   boneMap.forEach((bone, name) => {
-//     const restQuat = restPoseQuaternions.get(name);
-//     if (!restQuat) return;
-
-//     // Check if already close enough
-//     const dot = Math.abs(bone.quaternion.dot(restQuat));
-//     if (dot >= 1 - threshold) {
-//       bone.quaternion.copy(restQuat);
-//       return;
-//     }
-
-//     allDone = false;
-
-//     // Ensure shortest path SLERP
-//     const target = restQuat.clone();
-//     if (bone.quaternion.dot(target) < 0) {
-//       target.set(-target.x, -target.y, -target.z, -target.w);
-//     }
-
-//     // SLERP toward rest pose
-//     bone.quaternion.slerp(target, blendFactor);
-//   });
-
-//   if (allDone) {
-//     // Clear smoothing cache once settled
-//     previousQuaternions.clear();
-//     console.log("✅ Blend to A-pose complete");
-//   }
-
-//   return allDone;
-// }
-
-// /**
-//  * Returns whether a rest pose has been captured.
-//  */
-// export function isRestPoseCaptured(): boolean {
-//   return restPoseCaptured;
-// }
-
-// // ============================================
-// // SMOOTHING STATE
-// // ============================================
-// const previousQuaternions: Map<string, THREE.Quaternion> = new Map();
-
-// /**
-//  * Ensures shortest-path SLERP by flipping the target quaternion
-//  * if it's in the opposite hemisphere from the previous one.
-//  * Mutates targetQuat in place.
-//  */
-// function ensureShortestPath(
-//   prev: THREE.Quaternion,
-//   target: THREE.Quaternion,
-// ): void {
-//   if (prev.dot(target) < 0) {
-//     target.set(-target.x, -target.y, -target.z, -target.w);
-//   }
-// }
-
-// function getSmoothedQuaternion(
-//   boneName: string,
-//   targetQuat: THREE.Quaternion,
-//   smoothing: number,
-// ): THREE.Quaternion {
-//   const result = new THREE.Quaternion();
-
-//   if (smoothing <= 0) {
-//     previousQuaternions.set(boneName, targetQuat.clone());
-//     return targetQuat.clone();
-//   }
-
-//   const prevQuat = previousQuaternions.get(boneName);
-//   if (prevQuat) {
-//     // Fix: enforce shortest rotation path before interpolation
-//     ensureShortestPath(prevQuat, targetQuat);
-//     result.slerpQuaternions(prevQuat, targetQuat, 1 - smoothing);
-//   } else {
-//     result.copy(targetQuat);
-//   }
-
-//   previousQuaternions.set(boneName, result.clone());
-//   return result;
-// }
-
-// // ============================================
-// // UTILITIES
-// // ============================================
-
-// function getBone(
-//   boneMap: Map<string, THREE.Bone>,
-//   name: string,
-// ): THREE.Bone | undefined {
-//   return boneMap.get(name) || boneMap.get(name.toLowerCase());
-// }
-
-// function landmarkToVec3(lm: {
-//   x: number;
-//   y: number;
-//   z: number;
-// }): THREE.Vector3 {
-//   return new THREE.Vector3(lm.x, lm.y, lm.z);
-// }
-
-// function vec3FromLandmarks(
-//   landmarks: Array<{ x: number; y: number; z: number }>,
-//   index: number,
-// ): THREE.Vector3 {
-//   return landmarkToVec3(landmarks[index]);
-// }
-
-// /**
-//  * Safe version of setFromUnitVectors that handles the degenerate case
-//  * where from and to are nearly opposite (which causes singularity).
-//  */
-// function safeSetFromUnitVectors(
-//   from: THREE.Vector3,
-//   to: THREE.Vector3,
-//   fallbackAxis: THREE.Vector3 = new THREE.Vector3(0, 0, 1),
-// ): THREE.Quaternion {
-//   const quat = new THREE.Quaternion();
-//   const dot = from.dot(to);
-
-//   if (dot > 0.9999) {
-//     // Nearly identical — identity rotation
-//     return quat.identity();
-//   } else if (dot < -0.9999) {
-//     // Nearly opposite — 180° rotation around fallback axis
-//     return quat.setFromAxisAngle(fallbackAxis, Math.PI);
-//   }
-
-//   return quat.setFromUnitVectors(from, to);
-// }
-
-// // ============================================
-// // ARM IK SOLVER
-// // ============================================
-
-// function solveArmIK(
-//   shoulderBone: THREE.Bone | undefined,
-//   elbowBone: THREE.Bone | undefined,
-//   shoulderPos: { x: number; y: number; z: number },
-//   elbowPos: { x: number; y: number; z: number },
-//   wristPos: { x: number; y: number; z: number },
-//   isLeftArm: boolean = true,
-// ): void {
-//   if (!shoulderBone || !elbowBone) return;
-
-//   const scale = CONFIG.POSITION_SCALE;
-//   const zOffset = CONFIG.ARM_Z_OFFSET;
-//   const xOffset = CONFIG.ARM_X_OFFSET;
-//   const yOffset = isLeftArm
-//     ? CONFIG.ARM_Y_OFFSET_LEFT
-//     : CONFIG.ARM_Y_OFFSET_RIGHT;
-
-//   const xSign = isLeftArm ? 1 : -1;
-
-//   const shoulder = new THREE.Vector3(
-//     shoulderPos.x * scale,
-//     -shoulderPos.y * scale,
-//     shoulderPos.z * scale,
-//   );
-//   const elbow = new THREE.Vector3(
-//     elbowPos.x * scale + xOffset * 0.5 * xSign,
-//     -elbowPos.y * scale - yOffset * 0.5,
-//     elbowPos.z * scale + zOffset * 0.5,
-//   );
-//   const wrist = new THREE.Vector3(
-//     wristPos.x * scale + xOffset * xSign,
-//     -wristPos.y * scale - yOffset,
-//     wristPos.z * scale + zOffset,
-//   );
-
-//   const upperArmDir = new THREE.Vector3()
-//     .subVectors(elbow, shoulder)
-//     .normalize();
-//   const lowerArmDir = new THREE.Vector3().subVectors(wrist, elbow).normalize();
-
-//   const restDir = new THREE.Vector3(0, 1, 0);
-
-//   // Use fallback axis appropriate for arms (Z axis works well for side-to-side)
-//   const armFallback = new THREE.Vector3(0, 0, isLeftArm ? 1 : -1);
-
-//   // Upper arm
-//   const upperArmQuat = safeSetFromUnitVectors(
-//     restDir,
-//     upperArmDir,
-//     armFallback,
-//   );
-//   const parentWorldQuat = new THREE.Quaternion();
-//   if (shoulderBone.parent) {
-//     shoulderBone.parent.getWorldQuaternion(parentWorldQuat);
-//   }
-//   const localUpperQuat = parentWorldQuat
-//     .clone()
-//     .invert()
-//     .multiply(upperArmQuat);
-
-//   const smoothedUpperQuat = getSmoothedQuaternion(
-//     shoulderBone.name,
-//     localUpperQuat,
-//     CONFIG.ARM_SMOOTHING,
-//   );
-//   shoulderBone.quaternion.copy(smoothedUpperQuat);
-
-//   // Lower arm
-//   const lowerArmQuat = safeSetFromUnitVectors(
-//     restDir,
-//     lowerArmDir,
-//     armFallback,
-//   );
-//   const elbowParentWorldQuat = new THREE.Quaternion();
-//   shoulderBone.getWorldQuaternion(elbowParentWorldQuat);
-//   const localLowerQuat = elbowParentWorldQuat
-//     .clone()
-//     .invert()
-//     .multiply(lowerArmQuat);
-
-//   const smoothedLowerQuat = getSmoothedQuaternion(
-//     elbowBone.name,
-//     localLowerQuat,
-//     CONFIG.ARM_SMOOTHING,
-//   );
-//   elbowBone.quaternion.copy(smoothedLowerQuat);
-// }
-
-// // ============================================
-// // BODY MOTION
-// // ============================================
-
-// export function applyBodyMotion(
-//   boneMap: Map<string, THREE.Bone>,
-//   bodyData: any,
-// ): void {
-//   if (!bodyData) return;
-
-//   const leftArm = getBone(boneMap, "LeftArm");
-//   const leftForeArm = getBone(boneMap, "LeftForeArm");
-//   const rightArm = getBone(boneMap, "RightArm");
-//   const rightForeArm = getBone(boneMap, "RightForeArm");
-
-//   if (CONFIG.SWAP_SIDES) {
-//     if (bodyData.left_shoulder && bodyData.left_elbow && bodyData.left_wrist) {
-//       solveArmIK(
-//         rightArm,
-//         rightForeArm,
-//         bodyData.left_shoulder,
-//         bodyData.left_elbow,
-//         bodyData.left_wrist,
-//         false,
-//       );
-//     }
-//     if (
-//       bodyData.right_shoulder &&
-//       bodyData.right_elbow &&
-//       bodyData.right_wrist
-//     ) {
-//       solveArmIK(
-//         leftArm,
-//         leftForeArm,
-//         bodyData.right_shoulder,
-//         bodyData.right_elbow,
-//         bodyData.right_wrist,
-//         true,
-//       );
-//     }
-//   } else {
-//     if (bodyData.left_shoulder && bodyData.left_elbow && bodyData.left_wrist) {
-//       solveArmIK(
-//         leftArm,
-//         leftForeArm,
-//         bodyData.left_shoulder,
-//         bodyData.left_elbow,
-//         bodyData.left_wrist,
-//         true,
-//       );
-//     }
-//     if (
-//       bodyData.right_shoulder &&
-//       bodyData.right_elbow &&
-//       bodyData.right_wrist
-//     ) {
-//       solveArmIK(
-//         rightArm,
-//         rightForeArm,
-//         bodyData.right_shoulder,
-//         bodyData.right_elbow,
-//         bodyData.right_wrist,
-//         false,
-//       );
-//     }
-//   }
-// }
-
-// // ============================================
-// // WRIST ORIENTATION
-// // ============================================
-
-// function applyWristOrientation(
-//   boneMap: Map<string, THREE.Bone>,
-//   handData: any,
-//   side: "left" | "right",
-// ): void {
-//   const wristBoneName = WRIST_BONES[side];
-//   const wristBone = getBone(boneMap, wristBoneName);
-
-//   if (!wristBone || !handData?.wrist_quaternion) return;
-
-//   const wq = handData.wrist_quaternion;
-//   const targetQuat = new THREE.Quaternion(wq.x, wq.y, wq.z, wq.w);
-
-//   // Convert from world space to local space
-//   const parentWorldQuat = new THREE.Quaternion();
-//   if (wristBone.parent) {
-//     wristBone.parent.getWorldQuaternion(parentWorldQuat);
-//   }
-
-//   // RPM rest pose offset
-//   const restPoseOffset = new THREE.Quaternion();
-//   if (side === "left") {
-//     restPoseOffset.setFromEuler(new THREE.Euler(0, 0, 0));
-//   } else {
-//     restPoseOffset.setFromEuler(new THREE.Euler(0, 0, 0));
-//   }
-
-//   const localQuat = parentWorldQuat
-//     .clone()
-//     .invert()
-//     .multiply(targetQuat)
-//     .multiply(restPoseOffset);
-
-//   const smoothedQuat = getSmoothedQuaternion(
-//     wristBoneName,
-//     localQuat,
-//     CONFIG.WRIST_SMOOTHING,
-//   );
-
-//   wristBone.quaternion.copy(smoothedQuat);
-// }
-
-// // ============================================
-// // FINGER PROCESSING
-// // ============================================
-
-// function calculateFingerRotations(
-//   landmarks: Array<{ x: number; y: number; z: number }>,
-//   fingerName: keyof typeof FINGER_CHAINS,
-//   side: "left" | "right",
-// ): THREE.Quaternion[] {
-//   const chain = FINGER_CHAINS[fingerName];
-//   const rotations: THREE.Quaternion[] = [];
-
-//   const isThumb = fingerName === "thumb";
-//   const isLeft = side === "left";
-
-//   const positions = chain.map((idx) => vec3FromLandmarks(landmarks, idx));
-
-//   for (let i = 0; i < 4; i++) {
-//     const p0 = positions[Math.max(0, i)];
-//     const p1 = positions[i + 1];
-//     const p2 = positions[Math.min(i + 2, 4)];
-
-//     const v1 = new THREE.Vector3().subVectors(p0, p1).normalize();
-//     const v2 = new THREE.Vector3().subVectors(p2, p1).normalize();
-
-//     const dot = THREE.MathUtils.clamp(v1.dot(v2), -1, 1);
-//     const bendAngle = Math.acos(dot);
-
-//     let curlAmount = (Math.PI - bendAngle) * CONFIG.FINGER_CURL_MULTIPLIER;
-
-//     let maxCurl = Math.PI * 0.5;
-//     if (i === 0) maxCurl = Math.PI * 0.4;
-//     if (i === 3) maxCurl = Math.PI * 0.35;
-
-//     curlAmount = THREE.MathUtils.clamp(curlAmount, 0, maxCurl);
-
-//     let rotation: THREE.Quaternion;
-
-//     if (isThumb) {
-//       const curlAxis = new THREE.Vector3(1, 0, 0);
-//       const spreadAxis = new THREE.Vector3(0, 0, 1);
-
-//       const spreadAngle = calculateThumbSpread(landmarks, i, isLeft);
-
-//       const curlQuat = new THREE.Quaternion().setFromAxisAngle(
-//         curlAxis,
-//         curlAmount,
-//       );
-//       const spreadQuat = new THREE.Quaternion().setFromAxisAngle(
-//         spreadAxis,
-//         spreadAngle,
-//       );
-
-//       rotation = spreadQuat.multiply(curlQuat);
-//     } else {
-//       const curlAxis = new THREE.Vector3(1, 0, 0);
-//       rotation = new THREE.Quaternion().setFromAxisAngle(curlAxis, curlAmount);
-
-//       if (i === 0) {
-//         const spreadAngle = calculateFingerSpread(
-//           landmarks,
-//           fingerName,
-//           isLeft,
-//         );
-//         const spreadAxis = new THREE.Vector3(0, isLeft ? -1 : 1, 0);
-//         const spreadQuat = new THREE.Quaternion().setFromAxisAngle(
-//           spreadAxis,
-//           spreadAngle,
-//         );
-//         rotation.premultiply(spreadQuat);
-//       }
-//     }
-
-//     rotations.push(rotation);
-//   }
-
-//   return rotations;
-// }
-
-// function calculateThumbSpread(
-//   landmarks: Array<{ x: number; y: number; z: number }>,
-//   jointIndex: number,
-//   isLeft: boolean,
-// ): number {
-//   const thumbTip = vec3FromLandmarks(landmarks, HL.THUMB_TIP);
-//   const indexMcp = vec3FromLandmarks(landmarks, HL.INDEX_MCP);
-//   const wrist = vec3FromLandmarks(landmarks, HL.WRIST);
-
-//   const thumbDir = new THREE.Vector3().subVectors(thumbTip, wrist).normalize();
-//   const indexDir = new THREE.Vector3().subVectors(indexMcp, wrist).normalize();
-
-//   const cross = new THREE.Vector3().crossVectors(indexDir, thumbDir);
-
-//   let spreadAngle = Math.asin(THREE.MathUtils.clamp(cross.y, -1, 1));
-//   spreadAngle *= CONFIG.FINGER_SPREAD_MULTIPLIER;
-//   spreadAngle *= 1 - jointIndex * 0.3;
-
-//   return isLeft ? -spreadAngle : spreadAngle;
-// }
-
-// function calculateFingerSpread(
-//   landmarks: Array<{ x: number; y: number; z: number }>,
-//   fingerName: keyof typeof FINGER_CHAINS,
-//   isLeft: boolean,
-// ): number {
-//   const fingerMcpIndices: Record<string, number> = {
-//     index: HL.INDEX_MCP,
-//     middle: HL.MIDDLE_MCP,
-//     ring: HL.RING_MCP,
-//     pinky: HL.PINKY_MCP,
-//   };
-
-//   const mcpIdx = fingerMcpIndices[fingerName];
-//   if (!mcpIdx) return 0;
-
-//   const wrist = vec3FromLandmarks(landmarks, HL.WRIST);
-//   const middleMcp = vec3FromLandmarks(landmarks, HL.MIDDLE_MCP);
-//   const fingerMcp = vec3FromLandmarks(landmarks, mcpIdx);
-
-//   const refDir = new THREE.Vector3().subVectors(middleMcp, wrist).normalize();
-//   const fingerDir = new THREE.Vector3()
-//     .subVectors(fingerMcp, wrist)
-//     .normalize();
-
-//   const cross = new THREE.Vector3().crossVectors(refDir, fingerDir);
-//   let spreadAngle = Math.asin(THREE.MathUtils.clamp(cross.z, -1, 1));
-
-//   spreadAngle *= CONFIG.FINGER_SPREAD_MULTIPLIER;
-
-//   return spreadAngle;
-// }
-
-// function applyFingerRotations(
-//   boneMap: Map<string, THREE.Bone>,
-//   landmarks: Array<{ x: number; y: number; z: number }>,
-//   fingerName: keyof typeof FINGER_CHAINS,
-//   side: "left" | "right",
-// ): void {
-//   const boneNames = FINGER_BONES[side][fingerName];
-//   const rotations = calculateFingerRotations(landmarks, fingerName, side);
-
-//   for (let i = 0; i < 4; i++) {
-//     const boneName = boneNames[i];
-//     const bone = getBone(boneMap, boneName);
-
-//     if (!bone) continue;
-
-//     const smoothedQuat = getSmoothedQuaternion(
-//       boneName,
-//       rotations[i],
-//       CONFIG.FINGER_SMOOTHING,
-//     );
-
-//     bone.quaternion.copy(smoothedQuat);
-//   }
-// }
-
-// // ============================================
-// // HAND MOTION
-// // ============================================
-
-// export function applyHandMotion(
-//   boneMap: Map<string, THREE.Bone>,
-//   handsData: any,
-// ): void {
-//   if (!handsData) return;
-
-//   const fingers: Array<keyof typeof FINGER_CHAINS> = [
-//     "thumb",
-//     "index",
-//     "middle",
-//     "ring",
-//     "pinky",
-//   ];
-
-//   if (handsData.left?.landmarks?.length === 21) {
-//     applyWristOrientation(boneMap, handsData.left, "left");
-
-//     for (const finger of fingers) {
-//       applyFingerRotations(boneMap, handsData.left.landmarks, finger, "left");
-//     }
-//   }
-
-//   if (handsData.right?.landmarks?.length === 21) {
-//     applyWristOrientation(boneMap, handsData.right, "right");
-
-//     for (const finger of fingers) {
-//       applyFingerRotations(boneMap, handsData.right.landmarks, finger, "right");
-//     }
-//   }
-// }
-
-// // ============================================
-// // FACE MOTION
-// // ============================================
-
-// export function applyFaceMotion(
-//   skinnedMesh: THREE.SkinnedMesh,
-//   faceData: FaceBlendshapes,
-// ): void {
-//   if (!skinnedMesh.morphTargetDictionary || !skinnedMesh.morphTargetInfluences)
-//     return;
-
-//   const dict = skinnedMesh.morphTargetDictionary;
-//   const influences = skinnedMesh.morphTargetInfluences;
-
-//   if (faceData.jawOpen !== undefined && dict["jawOpen"] !== undefined) {
-//     influences[dict["jawOpen"]] = faceData.jawOpen;
-//   }
-
-//   if (faceData.mouthSmile !== undefined) {
-//     if (dict["mouthSmile"] !== undefined) {
-//       influences[dict["mouthSmile"]] = faceData.mouthSmile;
-//     } else if (dict["mouthSmileLeft"] !== undefined) {
-//       influences[dict["mouthSmileLeft"]] = faceData.mouthSmile;
-//       if (dict["mouthSmileRight"]) {
-//         influences[dict["mouthSmileRight"]] = faceData.mouthSmile;
-//       }
-//     }
-//   }
-
-//   const avgBrow =
-//     ((faceData.eyeBrowRaise_L || 0) + (faceData.eyeBrowRaise_R || 0)) / 2;
-//   if (dict["browInnerUp"] !== undefined) {
-//     influences[dict["browInnerUp"]] = avgBrow;
-//   }
-// }
-
-// // ============================================
-// // SETUP
-// // ============================================
-
-// export function buildBoneMap(scene: THREE.Object3D): Map<string, THREE.Bone> {
-//   const boneMap = new Map<string, THREE.Bone>();
-
-//   scene.traverse((child) => {
-//     if (child instanceof THREE.Bone) {
-//       boneMap.set(child.name, child);
-//       boneMap.set(child.name.toLowerCase(), child);
-//     }
-//   });
-
-//   return boneMap;
-// }
-
-// export function findSkinnedMesh(
-//   scene: THREE.Object3D,
-// ): THREE.SkinnedMesh | null {
-//   let result: THREE.SkinnedMesh | null = null;
-//   scene.traverse((child) => {
-//     if (child instanceof THREE.SkinnedMesh && !result) {
-//       result = child;
-//     }
-//   });
-//   return result;
-// }
-
-// export function resetSmoothingCache(): void {
-//   previousQuaternions.clear();
-//   console.log("🔄 Smoothing cache reset");
-// }
