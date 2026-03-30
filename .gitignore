@@ -39,4 +39,5 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
-*.py
+extract_motion.py
+motion_utils.py
