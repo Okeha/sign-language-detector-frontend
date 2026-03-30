@@ -141,7 +141,7 @@ const data = {
   navSecondary: [
     {
       title: "Portfolio | Anthony",
-      url: "https://okeh-anthony-portfolio.netlify.app/",
+      url: "https://anthonyokeh.com/",
       icon: Globe,
     },
     {

@@ -1,0 +1,354 @@
+[
+    {
+        "label": "json",
+        "kind": 6,
+        "isExtraImport": true,
+        "importPath": "json",
+        "description": "json",
+        "detail": "json",
+        "documentation": {}
+    },
+    {
+        "label": "cv2",
+        "kind": 6,
+        "isExtraImport": true,
+        "importPath": "cv2",
+        "description": "cv2",
+        "detail": "cv2",
+        "documentation": {}
+    },
+    {
+        "label": "mediapipe",
+        "kind": 6,
+        "isExtraImport": true,
+        "importPath": "mediapipe",
+        "description": "mediapipe",
+        "detail": "mediapipe",
+        "documentation": {}
+    },
+    {
+        "label": "numpy",
+        "kind": 6,
+        "isExtraImport": true,
+        "importPath": "numpy",
+        "description": "numpy",
+        "detail": "numpy",
+        "documentation": {}
+    },
+    {
+        "label": "Path",
+        "importPath": "pathlib",
+        "description": "pathlib",
+        "isExtraImport": true,
+        "detail": "pathlib",
+        "documentation": {}
+    },
+    {
+        "label": "Dict",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "List",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "Optional",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "Tuple",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "Tuple",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "Optional",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "Dict",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "_Known",
+        "kind": 6,
+        "importPath": "node_modules..pnpm.flat-cache@4.0.1.node_modules.flatted.python.flatted",
+        "description": "node_modules..pnpm.flat-cache@4.0.1.node_modules.flatted.python.flatted",
+        "peekOfCode": "class _Known:\n    def __init__(self):\n        self.key = []\n        self.value = []\nclass _String:\n    def __init__(self, value):\n        self.value = value\ndef _array_keys(value):\n    keys = []\n    i = 0",
+        "detail": "node_modules..pnpm.flat-cache@4.0.1.node_modules.flatted.python.flatted",
+        "documentation": {}
+    },
+    {
+        "label": "_String",
+        "kind": 6,
+        "importPath": "node_modules..pnpm.flat-cache@4.0.1.node_modules.flatted.python.flatted",
+        "description": "node_modules..pnpm.flat-cache@4.0.1.node_modules.flatted.python.flatted",
+        "peekOfCode": "class _String:\n    def __init__(self, value):\n        self.value = value\ndef _array_keys(value):\n    keys = []\n    i = 0\n    for _ in value:\n        keys.append(i)\n        i += 1\n    return keys",
+        "detail": "node_modules..pnpm.flat-cache@4.0.1.node_modules.flatted.python.flatted",
+        "documentation": {}
+    },
+    {
+        "label": "parse",
+        "kind": 2,
+        "importPath": "node_modules..pnpm.flat-cache@4.0.1.node_modules.flatted.python.flatted",
+        "description": "node_modules..pnpm.flat-cache@4.0.1.node_modules.flatted.python.flatted",
+        "peekOfCode": "def parse(value, *args, **kwargs):\n    json = _json.loads(value, *args, **kwargs)\n    wrapped = []\n    for value in json:\n        wrapped.append(_wrap(value))\n    input = []\n    for value in wrapped:\n        if isinstance(value, _String):\n            input.append(value.value)\n        else:",
+        "detail": "node_modules..pnpm.flat-cache@4.0.1.node_modules.flatted.python.flatted",
+        "documentation": {}
+    },
+    {
+        "label": "stringify",
+        "kind": 2,
+        "importPath": "node_modules..pnpm.flat-cache@4.0.1.node_modules.flatted.python.flatted",
+        "description": "node_modules..pnpm.flat-cache@4.0.1.node_modules.flatted.python.flatted",
+        "peekOfCode": "def stringify(value, *args, **kwargs):\n    known = _Known()\n    input = []\n    output = []\n    i = int(_index(known, input, value))\n    while i < len(input):\n        output.append(_transform(known, input, input[i]))\n        i += 1\n    return _json.dumps(output, *args, **kwargs)",
+        "detail": "node_modules..pnpm.flat-cache@4.0.1.node_modules.flatted.python.flatted",
+        "documentation": {}
+    },
+    {
+        "label": "_Known",
+        "kind": 6,
+        "importPath": "node_modules..pnpm.flatted@3.3.3.node_modules.flatted.python.flatted",
+        "description": "node_modules..pnpm.flatted@3.3.3.node_modules.flatted.python.flatted",
+        "peekOfCode": "class _Known:\n    def __init__(self):\n        self.key = []\n        self.value = []\nclass _String:\n    def __init__(self, value):\n        self.value = value\ndef _array_keys(value):\n    keys = []\n    i = 0",
+        "detail": "node_modules..pnpm.flatted@3.3.3.node_modules.flatted.python.flatted",
+        "documentation": {}
+    },
+    {
+        "label": "_String",
+        "kind": 6,
+        "importPath": "node_modules..pnpm.flatted@3.3.3.node_modules.flatted.python.flatted",
+        "description": "node_modules..pnpm.flatted@3.3.3.node_modules.flatted.python.flatted",
+        "peekOfCode": "class _String:\n    def __init__(self, value):\n        self.value = value\ndef _array_keys(value):\n    keys = []\n    i = 0\n    for _ in value:\n        keys.append(i)\n        i += 1\n    return keys",
+        "detail": "node_modules..pnpm.flatted@3.3.3.node_modules.flatted.python.flatted",
+        "documentation": {}
+    },
+    {
+        "label": "parse",
+        "kind": 2,
+        "importPath": "node_modules..pnpm.flatted@3.3.3.node_modules.flatted.python.flatted",
+        "description": "node_modules..pnpm.flatted@3.3.3.node_modules.flatted.python.flatted",
+        "peekOfCode": "def parse(value, *args, **kwargs):\n    json = _json.loads(value, *args, **kwargs)\n    wrapped = []\n    for value in json:\n        wrapped.append(_wrap(value))\n    input = []\n    for value in wrapped:\n        if isinstance(value, _String):\n            input.append(value.value)\n        else:",
+        "detail": "node_modules..pnpm.flatted@3.3.3.node_modules.flatted.python.flatted",
+        "documentation": {}
+    },
+    {
+        "label": "stringify",
+        "kind": 2,
+        "importPath": "node_modules..pnpm.flatted@3.3.3.node_modules.flatted.python.flatted",
+        "description": "node_modules..pnpm.flatted@3.3.3.node_modules.flatted.python.flatted",
+        "peekOfCode": "def stringify(value, *args, **kwargs):\n    known = _Known()\n    input = []\n    output = []\n    i = int(_index(known, input, value))\n    while i < len(input):\n        output.append(_transform(known, input, input[i]))\n        i += 1\n    return _json.dumps(output, *args, **kwargs)",
+        "detail": "node_modules..pnpm.flatted@3.3.3.node_modules.flatted.python.flatted",
+        "documentation": {}
+    },
+    {
+        "label": "_Known",
+        "kind": 6,
+        "importPath": "node_modules..pnpm.node_modules.flatted.python.flatted",
+        "description": "node_modules..pnpm.node_modules.flatted.python.flatted",
+        "peekOfCode": "class _Known:\n    def __init__(self):\n        self.key = []\n        self.value = []\nclass _String:\n    def __init__(self, value):\n        self.value = value\ndef _array_keys(value):\n    keys = []\n    i = 0",
+        "detail": "node_modules..pnpm.node_modules.flatted.python.flatted",
+        "documentation": {}
+    },
+    {
+        "label": "_String",
+        "kind": 6,
+        "importPath": "node_modules..pnpm.node_modules.flatted.python.flatted",
+        "description": "node_modules..pnpm.node_modules.flatted.python.flatted",
+        "peekOfCode": "class _String:\n    def __init__(self, value):\n        self.value = value\ndef _array_keys(value):\n    keys = []\n    i = 0\n    for _ in value:\n        keys.append(i)\n        i += 1\n    return keys",
+        "detail": "node_modules..pnpm.node_modules.flatted.python.flatted",
+        "documentation": {}
+    },
+    {
+        "label": "parse",
+        "kind": 2,
+        "importPath": "node_modules..pnpm.node_modules.flatted.python.flatted",
+        "description": "node_modules..pnpm.node_modules.flatted.python.flatted",
+        "peekOfCode": "def parse(value, *args, **kwargs):\n    json = _json.loads(value, *args, **kwargs)\n    wrapped = []\n    for value in json:\n        wrapped.append(_wrap(value))\n    input = []\n    for value in wrapped:\n        if isinstance(value, _String):\n            input.append(value.value)\n        else:",
+        "detail": "node_modules..pnpm.node_modules.flatted.python.flatted",
+        "documentation": {}
+    },
+    {
+        "label": "stringify",
+        "kind": 2,
+        "importPath": "node_modules..pnpm.node_modules.flatted.python.flatted",
+        "description": "node_modules..pnpm.node_modules.flatted.python.flatted",
+        "peekOfCode": "def stringify(value, *args, **kwargs):\n    known = _Known()\n    input = []\n    output = []\n    i = int(_index(known, input, value))\n    while i < len(input):\n        output.append(_transform(known, input, input[i]))\n        i += 1\n    return _json.dumps(output, *args, **kwargs)",
+        "detail": "node_modules..pnpm.node_modules.flatted.python.flatted",
+        "documentation": {}
+    },
+    {
+        "label": "MotionExtractor",
+        "kind": 6,
+        "importPath": "extract_motion",
+        "description": "extract_motion",
+        "peekOfCode": "class MotionExtractor:\n    \"\"\"Extracts motion data from sign language videos using MediaPipe.\"\"\"\n    # MediaPipe pose landmark indices\n    LEFT_SHOULDER = 11\n    RIGHT_SHOULDER = 12\n    LEFT_ELBOW = 13\n    RIGHT_ELBOW = 14\n    LEFT_WRIST = 15\n    RIGHT_WRIST = 16\n    # Face landmark indices",
+        "detail": "extract_motion",
+        "documentation": {}
+    },
+    {
+        "label": "convert_to_threejs_coords",
+        "kind": 2,
+        "importPath": "extract_motion",
+        "description": "extract_motion",
+        "peekOfCode": "def convert_to_threejs_coords(landmark):\n    \"\"\"Convert MediaPipe coords to Three.js (negate Z).\"\"\"\n    return (\n        float(landmark.x),\n        float(landmark.y),\n        float(-landmark.z)\n    )\nclass MotionExtractor:\n    \"\"\"Extracts motion data from sign language videos using MediaPipe.\"\"\"\n    # MediaPipe pose landmark indices",
+        "detail": "extract_motion",
+        "documentation": {}
+    },
+    {
+        "label": "calculate_quaternion_from_direction",
+        "kind": 2,
+        "importPath": "motion_utils",
+        "description": "motion_utils",
+        "peekOfCode": "def calculate_quaternion_from_direction(direction: np.ndarray, up_hint: Optional[np.ndarray] = None) -> Dict[str, float]:\n    \"\"\"\n    Calculate quaternion that rotates from +X axis to the given direction.\n    Args:\n        direction: Target direction vector (will be normalized)\n        up_hint: Optional hint for 'up' direction to resolve rotation ambiguity\n    Returns:\n        Dict with quaternion components {x, y, z, w}\n    \"\"\"\n    eps = 1e-8",
+        "detail": "motion_utils",
+        "documentation": {}
+    },
+    {
+        "label": "calculate_quaternion_from_direction_rpm",
+        "kind": 2,
+        "importPath": "motion_utils",
+        "description": "motion_utils",
+        "peekOfCode": "def calculate_quaternion_from_direction_rpm(\n    direction: np.ndarray, \n    is_left_side: bool = False,\n    is_elbow: bool = False\n) -> Dict[str, float]:\n    \"\"\"\n    Calculate quaternion for Ready Player Me skeleton.\n    Uses +Y as bone forward axis.\n    Args:\n        direction: Target direction vector (already in Three.js coords with Z negated)",
+        "detail": "motion_utils",
+        "documentation": {}
+    },
+    {
+        "label": "normalize_quat_dict",
+        "kind": 2,
+        "importPath": "motion_utils",
+        "description": "motion_utils",
+        "peekOfCode": "def normalize_quat_dict(q: Dict[str, float]) -> Dict[str, float]:\n    \"\"\"\n    Normalize a quaternion represented as a dict to unit length.\n    Args:\n        q: Dict with keys 'x','y','z','w'\n    Returns:\n        Normalized quaternion dict with float components.\n    \"\"\"\n    arr = np.array([q.get('x', 0.0), q.get('y', 0.0), q.get('z', 0.0), q.get('w', 1.0)], dtype=float)\n    n = np.linalg.norm(arr) + 1e-12",
+        "detail": "motion_utils",
+        "documentation": {}
+    },
+    {
+        "label": "quat_rotate_vector",
+        "kind": 2,
+        "importPath": "motion_utils",
+        "description": "motion_utils",
+        "peekOfCode": "def quat_rotate_vector(q: Dict[str, float], v: np.ndarray) -> np.ndarray:\n    \"\"\"\n    Rotate a 3D vector `v` by quaternion `q` (dict form).\n    Uses the formula: v' = v + 2.0 * cross(q_vec, cross(q_vec, v) + q_w * v)\n    Args:\n        q: Quaternion dict {x,y,z,w}\n        v: 3-vector to rotate\n    Returns:\n        Rotated 3-vector as numpy array\n    \"\"\"",
+        "detail": "motion_utils",
+        "documentation": {}
+    },
+    {
+        "label": "quat_multiply",
+        "kind": 2,
+        "importPath": "motion_utils",
+        "description": "motion_utils",
+        "peekOfCode": "def quat_multiply(a: Dict[str, float], b: Dict[str, float]) -> Dict[str, float]:\n    \"\"\"\n    Multiply two quaternions (Hamilton product): a * b\n    Args:\n        a, b: quaternion dicts {x,y,z,w}\n    Returns:\n        Quaternion dict representing a*b\n    \"\"\"\n    ax, ay, az, aw = a['x'], a['y'], a['z'], a['w']\n    bx, by, bz, bw = b['x'], b['y'], b['z'], b['w']",
+        "detail": "motion_utils",
+        "documentation": {}
+    },
+    {
+        "label": "quat_inverse",
+        "kind": 2,
+        "importPath": "motion_utils",
+        "description": "motion_utils",
+        "peekOfCode": "def quat_inverse(q: Dict[str, float]) -> Dict[str, float]:\n    \"\"\"\n    Inverse (conjugate) of a unit quaternion.\n    Args:\n        q: quaternion dict {x,y,z,w}\n    Returns:\n        Inverse quaternion dict\n    \"\"\"\n    # For unit quaternions, inverse is conjugate\n    return normalize_quat_dict({\"x\": -q['x'], \"y\": -q['y'], \"z\": -q['z'], \"w\": q['w']})",
+        "detail": "motion_utils",
+        "documentation": {}
+    },
+    {
+        "label": "calculate_wrist_quaternion",
+        "kind": 2,
+        "importPath": "motion_utils",
+        "description": "motion_utils",
+        "peekOfCode": "def calculate_wrist_quaternion(wrist, index_mcp, middle_mcp, pinky_mcp) -> Dict[str, float]:\n    \"\"\"\n    Calculate wrist rotation quaternion from hand plane.\n    Args:\n        wrist: Wrist landmark\n        index_mcp: Index finger knuckle\n        middle_mcp: Middle finger knuckle\n        pinky_mcp: Pinky finger knuckle\n    Returns:\n        Dict with quaternion components {x, y, z, w}",
+        "detail": "motion_utils",
+        "documentation": {}
+    },
+    {
+        "label": "calculate_joint_angle",
+        "kind": 2,
+        "importPath": "motion_utils",
+        "description": "motion_utils",
+        "peekOfCode": "def calculate_joint_angle(point_a, point_b, point_c) -> float:\n    \"\"\"\n    Calculate ROTATION angle at point_b formed by point_a -> point_b -> point_c.\n    Returns rotation angle needed to bend the joint.\n    Args:\n        point_a: First landmark point with x, y, z attributes\n        point_b: Middle landmark point (joint) with x, y, z attributes\n        point_c: End landmark point with x, y, z attributes\n    Returns:\n        Rotation angle in degrees (0° = straight, 90° = bent 90°, 180° = fully bent back)",
+        "detail": "motion_utils",
+        "documentation": {}
+    },
+    {
+        "label": "calculate_euler_angles",
+        "kind": 2,
+        "importPath": "motion_utils",
+        "description": "motion_utils",
+        "peekOfCode": "def calculate_euler_angles(shoulder, elbow, wrist) -> Tuple[float, float, float]:\n    \"\"\"\n    Calculate Euler angles (yaw, pitch, roll) for arm rotation.\n    Uses Tait-Bryan z-y-x convention.\n    Args:\n        shoulder: Shoulder landmark with x, y, z attributes\n        elbow: Elbow landmark with x, y, z attributes\n        wrist: Wrist landmark with x, y, z attributes\n    Returns:\n        Tuple of (yaw, pitch, roll) in degrees",
+        "detail": "motion_utils",
+        "documentation": {}
+    },
+    {
+        "label": "calculate_finger_curl",
+        "kind": 2,
+        "importPath": "motion_utils",
+        "description": "motion_utils",
+        "peekOfCode": "def calculate_finger_curl(mcp, pip, dip, tip) -> float:\n    \"\"\"\n    Calculate finger curl/bend as normalized value using dot product method.\n    Args:\n        mcp: Metacarpophalangeal joint (knuckle)\n        pip: Proximal interphalangeal joint\n        dip: Distal interphalangeal joint\n        tip: Fingertip\n    Returns:\n        Curl value: 0.0 = fully extended, 1.0 = fully curled",
+        "detail": "motion_utils",
+        "documentation": {}
+    },
+    {
+        "label": "calculate_finger_joint_angles",
+        "kind": 2,
+        "importPath": "motion_utils",
+        "description": "motion_utils",
+        "peekOfCode": "def calculate_finger_joint_angles(base, mcp, pip, dip, tip) -> dict:\n    \"\"\"\n    Calculate individual joint angles for each bone segment of a finger.\n    Returns rotation angles for MCP, PIP, and DIP joints.\n    Args:\n        base: Base/palm landmark (for thumb: CMC, for others: knuckle base)\n        mcp: Metacarpophalangeal joint\n        pip: Proximal interphalangeal joint\n        dip: Distal interphalangeal joint\n        tip: Fingertip",
+        "detail": "motion_utils",
+        "documentation": {}
+    },
+    {
+        "label": "calculate_blendshape_from_distance",
+        "kind": 2,
+        "importPath": "motion_utils",
+        "description": "motion_utils",
+        "peekOfCode": "def calculate_blendshape_from_distance(landmark1, landmark2, \n                                       min_distance: float, \n                                       max_distance: float) -> float:\n    \"\"\"\n    Calculate blendshape value from distance between two landmarks.\n    Args:\n        landmark1: First landmark with x, y, z attributes\n        landmark2: Second landmark with x, y, z attributes\n        min_distance: Distance at minimum blendshape (0.0)\n        max_distance: Distance at maximum blendshape (1.0)",
+        "detail": "motion_utils",
+        "documentation": {}
+    },
+    {
+        "label": "convert_to_threejs_coords",
+        "kind": 2,
+        "importPath": "motion_utils",
+        "description": "motion_utils",
+        "peekOfCode": "def convert_to_threejs_coords(landmark) -> Tuple[float, float, float]:\n    \"\"\"\n    Convert MediaPipe world coordinates to Three.js coordinate system.\n    MediaPipe: Right-handed, Y-up, Z away from camera (-)\n    Three.js: Right-handed, Y-up, Z toward viewer (+)\n    Args:\n        landmark: Landmark with x, y, z attributes (in meters)\n    Returns:\n        Tuple of (x, y, z) in Three.js coordinates\n    \"\"\"",
+        "detail": "motion_utils",
+        "documentation": {}
+    },
+    {
+        "label": "exponential_decay_interpolate",
+        "kind": 2,
+        "importPath": "motion_utils",
+        "description": "motion_utils",
+        "peekOfCode": "def exponential_decay_interpolate(current_value: Optional[dict], \n                                  previous_value: Optional[dict], \n                                  decay_factor: float = 0.8) -> Optional[dict]:\n    \"\"\"\n    Apply exponential decay interpolation for missing hand detections.\n    Args:\n        current_value: Current frame value (None if missing)\n        previous_value: Previous frame value (dict or None)\n        decay_factor: Decay multiplier (default 0.8)\n    Returns:",
+        "detail": "motion_utils",
+        "documentation": {}
+    }
+]
