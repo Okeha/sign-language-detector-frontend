@@ -202,7 +202,7 @@ Open a PR or create issues for feature requests. For major changes (model pipeli
 
 ## License
 
-This project is currently private/personal. Add a LICENSE file if you want to open-source it.
+NOT AVAILABLE FOR COMMERCIAL USE
 
 ---
 
