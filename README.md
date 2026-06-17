@@ -2,7 +2,7 @@
 
 <!-- <img src="assets/interface.png"> -->
 
-![UI Interface for SignrrGPT](assets/interface.png)
+![UI Interface for SignrrGPT](assets/Interface.png)
 
 This repository contains the frontend for a real-time Sign Language Detector application built with Next.js, React, and React Three Fiber. The app provides:
 
