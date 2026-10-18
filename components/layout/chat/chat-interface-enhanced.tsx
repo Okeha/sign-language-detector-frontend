@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Wand2, Sparkles, Trash2, Loader2, SendIcon } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { GlossPrediction } from "@/types/sign-language";
+import { parseChatSseLine } from "@/lib/chat-sse";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -220,6 +221,9 @@ export default function ChatInterfaceEnhanced({
     setMessages((prev) => [...prev, assistantMessage]);
     setIsWaitingForResponse(true);
 
+    let fullResponse = "";
+    let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+
     try {
       // Step 1: Stream AI response via SSE
       const response = await fetch(`${backendUrl}/chat/stream`, {
@@ -237,12 +241,39 @@ export default function ChatInterfaceEnhanced({
         throw new Error(`HTTP error! status: ${response.status}`);
       }
 
-      const reader = response.body?.getReader();
+      reader = response.body?.getReader();
       const decoder = new TextDecoder();
-      let fullResponse = "";
       let buffer = "";
+      let receivedDone = false;
 
       if (!reader) throw new Error("No response body");
+
+      const handleSseLine = (line: string) => {
+        const event = parseChatSseLine(line);
+
+        switch (event.kind) {
+          case "malformed":
+            console.warn("Skipping malformed SSE payload:", event.raw);
+            return;
+          case "error":
+            throw new Error(event.error);
+          case "done":
+            receivedDone = true;
+            return;
+          case "token":
+            fullResponse += event.token;
+            setMessages((prev) =>
+              prev.map((msg) =>
+                msg.id === assistantMessageId
+                  ? { ...msg, content: fullResponse, isLoading: false }
+                  : msg,
+              ),
+            );
+            return;
+          case "ignore":
+            return;
+        }
+      };
 
       while (true) {
         const { done, value } = await reader.read();
@@ -250,36 +281,24 @@ export default function ChatInterfaceEnhanced({
 
         buffer += decoder.decode(value, { stream: true });
 
-        // Process complete lines from buffer
         const lines = buffer.split("\n");
-        // Keep the last (potentially incomplete) line in the buffer
         buffer = lines.pop() || "";
 
         for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed.startsWith("data: ")) continue;
-
-          try {
-            const data = JSON.parse(trimmed.slice(6));
-
-            if (data.done) continue;
-            if (data.error) throw new Error(data.error);
-            if (data.token) {
-              fullResponse += data.token;
-
-              // Update message with streamed content
-              setMessages((prev) =>
-                prev.map((msg) =>
-                  msg.id === assistantMessageId
-                    ? { ...msg, content: fullResponse, isLoading: false }
-                    : msg,
-                ),
-              );
-            }
-          } catch (parseError) {
-            // Skip malformed SSE lines
-          }
+          handleSseLine(line);
         }
+      }
+
+      buffer += decoder.decode();
+      if (buffer.trim()) {
+        handleSseLine(buffer);
+      }
+
+      if (!receivedDone) {
+        throw new Error("Chat stream ended before completion");
+      }
+      if (!fullResponse.trim()) {
+        throw new Error("Chat stream completed without a response");
       }
 
       console.log("🤖 AI Response (streamed):", fullResponse);
@@ -324,16 +343,25 @@ export default function ChatInterfaceEnhanced({
         console.error("❌ Error converting AI response to gloss:", glossError);
       }
     } catch (error) {
-      console.error("❌ Error in streaming chat:", error);
+      try {
+        await reader?.cancel();
+      } catch {
+        // The stream may already be closed; there is nothing else to clean up.
+      }
 
-      // Update assistant message with error
+      const errorMessage =
+        error instanceof Error ? error.message : "Unknown streaming error";
+      console.error("❌ Error in streaming chat:", errorMessage);
+
+      // Preserve any partial response but make the interruption explicit.
       setMessages((prev) =>
         prev.map((msg) =>
           msg.id === assistantMessageId
             ? {
                 ...msg,
-                content:
-                  "Sorry, I encountered an error processing your request. Please try again.",
+                content: fullResponse
+                  ? `${fullResponse}\n\n_Response interrupted: ${errorMessage}_`
+                  : `Sorry, I encountered an error processing your request. Please try again.\n\n${errorMessage}`,
                 isLoading: false,
               }
             : msg,
