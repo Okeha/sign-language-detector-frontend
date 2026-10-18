@@ -7,6 +7,10 @@ import {
     GlossPrediction,
     WebSocketMessage,
 } from "@/types/sign-language";
+import {
+    getStreamingStartAction,
+    hasActiveConnectionAttempt,
+} from "@/lib/websocket-lifecycle";
 
 /**
  * Hook to manage WebSocket connection to FastAPI backend
@@ -25,29 +29,56 @@ export function useSignLanguageStream(
     const [sessionId] = useState(() => generateSessionId());
 
     const wsRef = useRef<WebSocket | null>(null);
+    const pendingStartRef = useRef(false);
     const reconnectTimeoutRef = useRef<NodeJS.Timeout>(undefined);
     const reconnectAttemptsRef = useRef(0);
     const maxReconnectAttempts = 5;
 
     const connect = useCallback(() => {
-        if (wsRef.current?.readyState === WebSocket.OPEN) {
-            console.log("WebSocket already connected");
+        const existingReadyState = wsRef.current?.readyState ?? null;
+        if (hasActiveConnectionAttempt(existingReadyState)) {
+            console.log(
+                existingReadyState === WebSocket.OPEN
+                    ? "WebSocket already connected"
+                    : "WebSocket connection already in progress"
+            );
             return;
+        }
+
+        if (reconnectTimeoutRef.current) {
+            clearTimeout(reconnectTimeoutRef.current);
+            reconnectTimeoutRef.current = undefined;
         }
 
         try {
             const ws = new WebSocket(`${backendUrl}/ws/stream/${sessionId}`);
+            // Store the socket immediately so rapid connect calls see CONNECTING.
+            wsRef.current = ws;
 
             ws.onopen = () => {
+                // Ignore stale callbacks from a socket that has been superseded.
+                if (wsRef.current !== ws) {
+                    ws.close(1000, "Superseded connection");
+                    return;
+                }
+
                 console.log("✅ WebSocket OPENED successfully:", sessionId);
                 // console.log("✅ WebSocket readyState:", ws.readyState);
                 // console.log("✅ WebSocket URL:", ws.url);
                 setIsConnected(true);
                 setError(null);
                 reconnectAttemptsRef.current = 0;
+
+                // A Start Streaming click made while CONNECTING is completed here.
+                if (pendingStartRef.current) {
+                    pendingStartRef.current = false;
+                    setIsStreaming(true);
+                }
             };
 
             ws.onmessage = (event) => {
+                if (wsRef.current !== ws) return;
+
                 console.log("🔔 ============ ONMESSAGE FIRED ============");
                 // console.log("🔔 Event object:", event);
                 // console.log("🔔 Event.data type:", typeof event.data);
@@ -107,16 +138,23 @@ export function useSignLanguageStream(
             };
 
             ws.onerror = (event) => {
+                if (wsRef.current !== ws) return;
+
                 console.error("❌ WebSocket ERROR event:", event);
                 console.error("❌ WebSocket readyState:", ws.readyState);
                 setError("WebSocket connection error");
             };
 
             ws.onclose = (event) => {
+                // A replaced or explicitly detached socket must not clobber the
+                // state of a newer connection.
+                if (wsRef.current !== ws) return;
+
                 console.log("🔴 WebSocket CLOSED");
                 // console.log("🔴 Close code:", event.code);
                 // console.log("🔴 Close reason:", event.reason);
                 // console.log("🔴 Was clean:", event.wasClean);
+                wsRef.current = null;
                 setIsConnected(false);
                 setIsStreaming(false);
 
@@ -132,12 +170,11 @@ export function useSignLanguageStream(
                     );
 
                     reconnectTimeoutRef.current = setTimeout(() => {
+                        reconnectTimeoutRef.current = undefined;
                         connect();
                     }, delay);
                 }
             };
-
-            wsRef.current = ws;
         } catch (err: any) {
             console.error("Failed to create WebSocket:", err);
             setError(err.message);
@@ -145,13 +182,18 @@ export function useSignLanguageStream(
     }, [backendUrl, sessionId, onPrediction]);
 
     const disconnect = useCallback(() => {
+        pendingStartRef.current = false;
+        reconnectAttemptsRef.current = 0;
+
         if (reconnectTimeoutRef.current) {
             clearTimeout(reconnectTimeoutRef.current);
+            reconnectTimeoutRef.current = undefined;
         }
 
-        if (wsRef.current) {
-            wsRef.current.close(1000, "Client disconnect");
-            wsRef.current = null;
+        const ws = wsRef.current;
+        wsRef.current = null;
+        if (ws) {
+            ws.close(1000, "Client disconnect");
         }
 
         setIsConnected(false);
@@ -186,15 +228,27 @@ export function useSignLanguageStream(
     );
 
     const startStreaming = useCallback(() => {
-        if (!isConnected) {
-            setError("Not connected to WebSocket");
+        const action = getStreamingStartAction(wsRef.current?.readyState ?? null);
+
+        if (action === "start") {
+            pendingStartRef.current = false;
+            setIsStreaming(true);
+            setError(null);
             return;
         }
-        setIsStreaming(true);
+
+        // If the socket is CONNECTING, onopen will complete this request. If
+        // there is no usable socket, start the connection and do the same.
+        pendingStartRef.current = true;
         setError(null);
-    }, [isConnected]);
+
+        if (action === "connect") {
+            connect();
+        }
+    }, [connect]);
 
     const stopStreaming = useCallback(() => {
+        pendingStartRef.current = false;
         setIsStreaming(false);
     }, []);
 
